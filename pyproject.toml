@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cligate"
+version = "0.1.0"
+description = "상태 인식 셸 프론트엔드 — 되돌릴 수 없는 명령을 실행 전에 막는다"
+requires-python = ">=3.9"         # 서버 도달 범위: RHEL 9, Ubuntu 22.04+
+dependencies = [
+    "prompt_toolkit>=3.0.43",     # 입력 줄, 완성 메뉴, 터미널 제어
+    "PyYAML>=6.0",                # 규칙 파일
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio", "ruff", "shiv"]
+
+[project.scripts]
+cligate = "cligate.cli:main"              # TODO: 이름 확정 시 변경 (두 곳 중 나머지)
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cligate"]            # 패키지명과 배포명이 달라도 되게 명시
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "SIM", "C4", "PL", "RUF"]
+# typing.List / Optional 유지 — 3.9 를 타깃으로 하고, 기여자가 어느 버전에서
+# 작업하든 같은 모양이 되도록 한 가지 표기만 쓴다.
+ignore = [
+    "UP006", "UP035", "UP045",      # typing.List / Optional 유지
+    "PLR2004", "PLR0912", "PLR0915",
+    # 지연 import 는 의도적이다. cli.py 가 ui 와 engine 을 최상단에서 끌어오면
+    # `cligate --version` 하나에도 prompt_toolkit 이 통째로 로드된다.
+    "PLC0415",
+    # ❯ 는 프롬프트 기호로 일부러 쓴 것이다.
+    "RUF001",
+    # 빌트인 디스패치는 분기마다 돌려주는 편이 읽기 쉽다.
+    "PLR0911",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# conftest 가 sys.path 를 먼저 손본다 (E402).
+# parametrize 를 쓰면 인자가 많아지는 것이 정상이다 (PLR0913/0917).
+"tests/*" = ["E402", "PLR0913", "PLR0917", "PLW1510", "C408", "SIM105", "F401"]
