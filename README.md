@@ -4,6 +4,9 @@
 ### demo
 https://claude.ai/artifact/DCdcEaPgrq86FK64MXn2NF
 
+### github link
+https://github.com/brain305/cligate
+
 ## 파일 역할
 
 | 파일         | 역할                                                                |
