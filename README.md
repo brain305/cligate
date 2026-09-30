@@ -1,6 +1,7 @@
 # cligate
 
 2026 capstone design
+### demo
 https://claude.ai/artifact/DCdcEaPgrq86FK64MXn2NF
 
 ## 파일 역할
