@@ -1,6 +1,6 @@
 from prompt_toolkit import prompt
 import subprocess
-from . import APP_NAME, parse, builtin
+from . import APP_NAME, parse, builtin, gate
 
 
 def main():
@@ -30,7 +30,16 @@ def main():
                 builtin.BUILTINS[name](args)
                 continue
 
-            # 입력 내용을 쉘에 그대로 넣는 입력
+            # 4. 위험 검사
+            warnings = gate.check(commands)
+            if warnings:
+                for w in warnings:
+                    print(f"{w}")
+                if prompt("실행할까요? (y/N) ").strip().lower() != "y":
+                    continue
+            # 5.확인
+
+            # 6. 실행 - 입력 내용을 쉘에 그대로 넣는 입력
             subprocess.run(line, shell=True)
         except EOFError:
             break

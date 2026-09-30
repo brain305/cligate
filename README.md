@@ -4,6 +4,12 @@
 ### demo
 https://claude.ai/artifact/DCdcEaPgrq86FK64MXn2NF
 
+### 설계
+https://claude.ai/artifact/LuLTqhjHSwqAibTQaFpHg5
+
+### 개념
+https://claude.ai/artifact/WYwvCvK7rRxEG6j36xRuXs#16286ef7-6de0
+
 ### github link
 https://github.com/brain305/cligate
 
