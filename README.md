@@ -5,7 +5,7 @@
 https://claude.ai/artifact/DCdcEaPgrq86FK64MXn2NF
 
 ### 설계
-https://claude.ai/artifact/EwNadsHp56TurZNbC4E6g5
+https://claude.ai/artifact/NtPzq6Cd3meWjb2aVKKMeJ
 
 ### github link
 https://github.com/brain305/cligate
