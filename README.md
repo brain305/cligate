@@ -4,6 +4,9 @@
 ### demo
 https://claude.ai/artifact/DCdcEaPgrq86FK64MXn2NF
 
+### 보고서
+https://claude.ai/artifact/SC1tbrYQvadwi8UzTjNLY7
+
 ### 설계
 https://claude.ai/artifact/NtPzq6Cd3meWjb2aVKKMeJ
 
