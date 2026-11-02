@@ -3,7 +3,7 @@ import subprocess
 import sys
 
 import pytest
-from conftest import git, write
+from conftest import commit, git, write
 
 
 def run(lines, cwd):
@@ -94,3 +94,68 @@ class TestShell:
     def test_syntax_error_does_not_run(self, repo):
         run(['touch made; echo "hello', "exit"], repo)
         assert not (repo / "made").exists()
+
+
+class TestOverwrite:
+    @pytest.mark.parametrize("line", ["echo new > u", "cp a u", "mv a u"])
+    def test_cancelled_keeps_file(self, repo, line):
+        write(repo / "u", "precious\n")
+        run([line, "", "exit"], repo)
+        assert (repo / "u").read_text() == "precious\n"
+        assert (repo / "a").exists()
+
+    def test_redirect_confirmed(self, repo):
+        write(repo / "u", "precious\n")
+        run(["echo new > u", "y", "exit"], repo)
+        assert (repo / "u").read_text() == "new\n"
+
+    def test_cp_confirmed(self, repo):
+        write(repo / "u", "precious\n")
+        run(["cp a u", "y", "exit"], repo)
+        assert (repo / "u").read_text() == "v\n"
+
+    def test_append_does_not_ask(self, repo):
+        write(repo / "u", "precious\n")
+        run(["echo new >> u", "exit"], repo)
+        assert (repo / "u").read_text() == "precious\nnew\n"
+
+    def test_new_file_does_not_ask(self, repo):
+        run(["echo new > brand-new", "cp a brand-new2", "exit"], repo)
+        assert (repo / "brand-new").read_text() == "new\n"
+        assert (repo / "brand-new2").exists()
+
+    def test_committed_file_really_recovers(self, repo):
+        run(["echo broken > a", "git restore a", "y", "exit"], repo)  # 덮어쓴 내용도 커밋 안 한 변경이라 묻는다
+        assert (repo / "a").read_text() == "v\n"
+
+
+class TestGitCleanupCommands:
+    def _alone(self, repo):
+        git("checkout", "-q", "-b", "alone", cwd=repo)
+        commit(repo, "alone-file")
+        git("checkout", "-q", "main", cwd=repo)
+
+    def test_branch_delete_cancelled_then_confirmed(self, repo):
+        self._alone(repo)
+        run(["git branch -D alone", "", "exit"], repo)
+        assert "alone" in git("branch", cwd=repo)
+        run(["git branch -D alone", "y", "exit"], repo)
+        assert "alone" not in git("branch", cwd=repo)
+
+    def test_stash_drop_cancelled_then_confirmed(self, repo):
+        write(repo / "a", "changed\n")
+        git("stash", "-q", cwd=repo)
+        run(["git stash drop", "", "exit"], repo)
+        assert git("stash", "list", cwd=repo) != ""
+        run(["git stash drop", "y", "exit"], repo)
+        assert git("stash", "list", cwd=repo) == ""
+
+    def test_switch_force_cancelled_then_confirmed(self, repo):
+        git("branch", "side", cwd=repo)
+        write(repo / "a", "changed\n")
+        run(["git switch -f side", "", "exit"], repo)
+        assert git("branch", "--show-current", cwd=repo) == "main"
+        assert (repo / "a").read_text() == "changed\n"
+        run(["git switch -f side", "y", "exit"], repo)
+        assert git("branch", "--show-current", cwd=repo) == "side"
+        assert (repo / "a").read_text() == "v\n"

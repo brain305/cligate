@@ -102,10 +102,10 @@ def _check_delete(remote, dst, cwd, offline):
     lost, local_only = result
     if lost:
         title = f"git push: 원격 브랜치 {target} 삭제. 커밋 {len(lost)}개가 어디에도 남지 않습니다"
-        return [risk.judge(R3, S2, _list_commits(title, lost), CONFIRM_WORD)]
+        return [risk.judge(R3, S2, risk.list_commits(title, lost), CONFIRM_WORD)]
     if local_only:
         title = f"git push: 원격 브랜치 {target} 삭제. 커밋 {len(local_only)}개가 이 컴퓨터에만 남습니다"
-        return [risk.judge(R2, S2, _list_commits(title, local_only), CONFIRM_WORD)]
+        return [risk.judge(R2, S2, risk.list_commits(title, local_only), CONFIRM_WORD)]
     message = f"git push: 원격 브랜치 {target} 삭제. 커밋은 다른 원격 브랜치에 남아 있습니다"
     return [risk.judge(R1, S2, message, CONFIRM_WORD)]
 
@@ -129,18 +129,10 @@ def _check_ref(remote, src, dst, cwd, offline):
         return [Finding(L3, f"git push --force: 원격 {remote}/{dst} 의 커밋을 확인하지 못했습니다", CONFIRM_WORD)]
     if commits:
         title = f"git push --force: {remote}/{dst} 의 커밋 {len(commits)}개가 사라집니다"
-        return [risk.judge(R3, S2, _list_commits(title, commits), CONFIRM_WORD)]
+        return [risk.judge(R3, S2, risk.list_commits(title, commits), CONFIRM_WORD)]
     if protected:
         return [Finding(L3, f"git push --force: 보호 브랜치 {dst} 를 강제로 덮어씁니다", CONFIRM_WORD)]
     return [Finding(L1, f"git push --force: {remote}/{dst} 에서 사라지는 커밋은 없습니다", CONFIRM_WORD)]
-
-
-def _list_commits(title, commits):
-    lines = [title]
-    lines += [f"    {commit}" for commit in commits[:risk.MAX_LISTED]]
-    if len(commits) > risk.MAX_LISTED:
-        lines.append(f"    ... 외 {len(commits) - risk.MAX_LISTED}개")
-    return "\n".join(lines)
 
 
 def _read_push(args):

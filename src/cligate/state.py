@@ -241,6 +241,29 @@ def dropped_commits(ref, cwd):
     return out.splitlines() if out else []
 
 
+def deleted_branch_commits(branch, cwd):
+    """브랜치를 지울 때 (어디에도 안 남는 커밋, 원격 추적 브랜치에만 남는 커밋) 을 돌려준다. 확인하지 못하면 None."""
+    ref = f"refs/heads/{branch}"
+    # --exclude 는 바로 뒤 옵션에만 적용되고, --branches 앞에서는 refs/heads/ 없이 써야 한다. stash 는 남는 곳이 아니다
+    lost = _git(["log", COMMIT_FORMAT, ref, "--not", f"--exclude={ref}", "--exclude=refs/stash", "--all"], cwd)
+    not_local = _git(["log", COMMIT_FORMAT, ref, "--not", f"--exclude={branch}", "--branches"], cwd)
+    if lost is None or not_local is None:
+        return None
+    lost = lost.splitlines()
+    return lost, [c for c in not_local.splitlines() if c not in lost]
+
+
+def stash_entries(cwd):
+    """치워둔 변경 목록. 예: stash@{0}  WIP on main. 확인하지 못하면 None."""
+    out = _git(["stash", "list", "--format=%gd  %gs"], cwd)
+    return None if out is None else out.splitlines()
+
+
+def stash_files(ref, cwd):
+    out = _git(["stash", "show", "--name-only", ref], cwd)
+    return out.splitlines() if out else []
+
+
 def is_commit(ref, cwd):
     return _git(["rev-parse", "--verify", "-q", f"{ref}^{{commit}}"], cwd) is not None
 

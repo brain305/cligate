@@ -492,6 +492,15 @@ class TestCurated:
         assert "git" in curated("gi", repo)
 
 
+class TestStashMark:
+    def test_drop_marked_only_when_there_is_something(self, repo):
+        assert complete.MARK not in meta("git stash ", repo)["drop"]
+        write(repo / "a", "changed\n")
+        git("stash", "-q")
+        assert "L2" in meta("git stash ", repo)["drop"]
+        assert values("git stash ", repo)[-1] == "drop"
+
+
 class TestSnapshot:
     def test_clean(self, repo):
         snap = state.snapshot(str(repo))

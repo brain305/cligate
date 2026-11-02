@@ -1,5 +1,5 @@
 from . import parse, risk, state
-from .risk import Finding, L1, L2, R2, R3, S1
+from .risk import Finding, L1, L2, R2, R3, S1, S2
 
 CHECKOUT_VALUE_OPTS = {"-b", "-B", "--orphan"}
 RESTORE_VALUE_OPTS = {"-s", "--source"}
@@ -8,7 +8,8 @@ CLEAN_VALUE_OPTS = {"-e", "--exclude"}
 
 def check(sub, args, cwd):
     """작업 폴더의 변경을 날리는 git 명령을 판정한다. 저장소 밖이면 git 이 알아서 거부한다."""
-    handler = {"reset": _reset, "clean": _clean, "checkout": _checkout, "restore": _restore}.get(sub)
+    handler = {"reset": _reset, "clean": _clean, "checkout": _checkout, "restore": _restore,
+               "switch": _switch, "branch": _branch, "stash": _stash}.get(sub)
     if handler is None or state.repo_root(cwd) is None:
         return []
     return handler(parse.strip_redirects(args), cwd)
@@ -90,6 +91,68 @@ def _restore(args, cwd):
     if any("$" in p for p in paths):
         return [Finding(L2, "git restore: 되돌릴 파일을 확인할 수 없습니다")]
     return _lost_work("git restore", state.uncommitted(cwd, paths) if staged else state.unstaged(cwd, paths), cwd)
+
+
+def _switch(args, cwd):
+    flags, _, _ = _split(args, set())
+    if _has(flags, "f", "--force") or "--discard-changes" in flags:
+        return _lost_work("git switch -f", state.uncommitted(cwd), cwd)
+    return []  # 변경이 충돌하면 git 이 이동을 거부한다
+
+
+def _branch(args, cwd):
+    """브랜치 강제 삭제. 기준은 지운 뒤 그 커밋이 어디에 남는가이다. -d 는 git 이 병합 여부를 확인한다."""
+    flags, words, _ = _split(args, set())
+    forced = any(f == "-D" or (not f.startswith("--") and "D" in f) for f in flags) or (
+        _has(flags, "d", "--delete") and _has(flags, "f", "--force"))
+    if not forced or _has(flags, "r", "--remotes"):
+        return []  # 추적 정보만 지우는 -r 은 fetch 로 되살아난다
+    current = state.current_branch(cwd)
+    findings = []
+    for name in words:
+        if "$" in name:
+            findings.append(Finding(L2, "git branch -D: 지울 브랜치를 확인할 수 없습니다"))
+        elif name != current and state.is_commit(f"refs/heads/{name}", cwd):  # 지금 브랜치와 없는 브랜치는 git 이 거부한다
+            findings.extend(_deleted_branch(name, cwd))
+    return findings
+
+
+def _deleted_branch(name, cwd):
+    result = state.deleted_branch_commits(name, cwd)
+    if result is None:
+        return [Finding(L2, f"git branch -D: {name} 의 커밋을 확인하지 못했습니다")]
+    lost, only_on_remote = result
+    if lost:
+        title = f"git branch -D: {name} 의 커밋 {len(lost)}개가 어디에도 남지 않습니다"
+        tip = f"\n    지운 직후라면 git branch {name} {lost[0].split()[0]} 로 되찾을 수 있습니다"
+        return [risk.judge(R3, S1, risk.list_commits(title, lost) + tip)]
+    if only_on_remote:
+        return [risk.judge(R2, S1, f"git branch -D: {name} 의 커밋 {len(only_on_remote)}개는 원격 추적 브랜치에만 남습니다")]
+    return []
+
+
+def _stash(args, cwd):
+    _, words, _ = _split(args, set())
+    if not words or words[0] not in ("drop", "clear"):
+        return []
+    entries = state.stash_entries(cwd)
+    if entries is None:
+        return [Finding(L2, f"git stash {words[0]}: 상태를 확인하지 못했습니다")]
+    if words[0] == "clear":
+        return _lost_stashes("git stash clear", entries, cwd)
+    if len(words) > 1 and "$" in words[1]:
+        return [Finding(L2, "git stash drop: 지울 항목을 확인할 수 없습니다")]
+    target = words[1] if len(words) > 1 else "stash@{0}"
+    target = f"stash@{{{target}}}" if target.isdigit() else target
+    return _lost_stashes("git stash drop", [e for e in entries if e.startswith(f"{target} ")], cwd)
+
+
+def _lost_stashes(name, entries, cwd):
+    if not entries:
+        return []  # 지울 것이 없으면 git 이 알아서 끝낸다
+    count = sum(len(state.stash_files(e.split()[0], cwd)) for e in entries)
+    scope = S2 if count >= risk.MAX_FILES else S1
+    return [risk.judge(R3, scope, risk.list_commits(f"{name}: 치워둔 변경을 지웁니다. 되살릴 수 없습니다", entries))]
 
 
 def _lost_work(name, items, cwd):

@@ -85,6 +85,14 @@ def describe(title, items, cwd):
     return "\n".join(lines)
 
 
+def list_commits(title, commits):
+    """제목 아래에 커밋이나 항목 목록을 붙인다."""
+    lines = [title, *(f"    {commit}" for commit in commits[:MAX_LISTED])]
+    if len(commits) > MAX_LISTED:
+        lines.append(f"    ... 외 {len(commits) - MAX_LISTED}개")
+    return "\n".join(lines)
+
+
 def _files(paths):
     for path in dict.fromkeys(paths):
         if os.path.isdir(path) and not os.path.islink(path):

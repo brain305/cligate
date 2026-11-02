@@ -1,8 +1,9 @@
 import os
 
 import pytest
-from conftest import git, judge, level, messages, write
+from conftest import commit, git, judge, level, messages, write
 
+from cligate import state
 from cligate.risk import L0, L1, L2, L3
 
 
@@ -152,7 +153,159 @@ def test_many_untracked_files_need_word_for_clean(repo):
     assert level("git clean -f") == L3
 
 
+class TestSwitchForce:
+    @pytest.mark.parametrize("line", ["git switch -f side", "git switch --force side", "git switch --discard-changes side", "git switch -fc new"])
+    def test_loses_changes(self, repo, line):
+        git("branch", "side")
+        write(repo / "a", "changed\n")
+        assert level(line) == L2
+        assert "a  (커밋 안 한 변경)" in messages(line)
+
+    def test_clean_repo_passes(self, repo):
+        git("branch", "side")
+        assert level("git switch -f side") == L0
+
+    def test_plain_switch_passes(self, repo):
+        git("branch", "side")
+        write(repo / "a", "changed\n")
+        assert level("git switch side") == L0
+        assert level("git switch -c new") == L0
+
+    def test_many_changes_need_word(self, repo):
+        for i in range(60):
+            write(repo / f"f{i}")
+        git("add", "-A")
+        git("commit", "-qm", "many")
+        for i in range(60):
+            write(repo / f"f{i}", "changed\n")
+        assert level("git switch -f main") == L3
+
+
+class TestBranchDelete:
+    @pytest.fixture
+    def branches(self, repo):
+        """merged 는 병합됨 / alone 은 커밋이 여기에만 있음 / main 이 지금 브랜치."""
+        git("branch", "merged")
+        git("checkout", "-q", "-b", "alone")
+        commit(repo, "alone-file")
+        git("checkout", "-q", "main")
+        return repo
+
+    @pytest.mark.parametrize("line", ["git branch -D alone", "git branch --delete --force alone", "git branch -d -f alone", "git branch -df alone"])
+    def test_only_copy_of_commits_asks(self, branches, line):
+        assert level(line) == L2
+        text = messages(line)
+        assert "어디에도 남지 않습니다" in text
+        assert "alone-file" in text
+        assert "git branch alone " in text
+
+    def test_recovery_tip_really_works(self, branches):
+        tip = next(l for l in messages("git branch -D alone").splitlines() if "되찾을" in l)
+        sha = tip.split("git branch alone ")[1].split()[0]
+        git("branch", "-D", "alone")
+        git("branch", "alone", sha)
+        assert git("log", "-1", "--format=%s", "alone") == "alone-file 커밋"
+
+    def test_merged_passes(self, branches):
+        assert level("git branch -D merged") == L0
+
+    def test_commits_on_another_local_branch_pass(self, branches):
+        git("branch", "copy", "alone")
+        assert level("git branch -D alone") == L0
+
+    @pytest.mark.parametrize("line", ["git branch -d alone", "git branch alone2", "git branch", "git branch -a", "git branch -rD origin/alone"])
+    def test_git_protects_or_nothing_lost(self, branches, line):
+        assert level(line) == L0
+
+    @pytest.mark.parametrize("line", ["git branch -D main", "git branch -D nosuch"])
+    def test_git_refuses_by_itself(self, branches, line):
+        assert level(line) == L0
+
+    def test_variable_asks(self, branches):
+        assert level("git branch -D $B") == L2
+
+    def test_several_take_the_highest(self, branches):
+        assert level("git branch -D merged alone") == L2
+
+    def test_stash_does_not_count_as_kept(self, branches):
+        git("checkout", "-q", "alone")
+        write(branches / "alone-file", "changed\n")
+        git("stash", "-q")
+        git("checkout", "-q", "main")
+        assert level("git branch -D alone") == L2
+
+    def test_remote_tracking_only_notifies(self, pushed):
+        git("checkout", "-q", "main")
+        assert level("git branch -D mine") == L1
+        assert "원격 추적 브랜치에만" in messages("git branch -D mine")
+
+    def test_unpushed_commit_on_tracked_branch_asks(self, pushed):
+        git("checkout", "-q", "mine")
+        commit(pushed, "unpushed")
+        git("checkout", "-q", "main")
+        assert level("git branch -D mine") == L2
+        assert "unpushed" in messages("git branch -D mine")
+
+    def test_judging_deletes_nothing(self, branches):
+        judge("git branch -D alone")
+        assert git("rev-parse", "--verify", "-q", "refs/heads/alone")
+
+
+class TestStashDrop:
+    @pytest.fixture
+    def stashed(self, repo):
+        write(repo / "a", "first\n")
+        git("stash", "push", "-q", "-m", "첫째")
+        write(repo / "b", "second\n")
+        git("stash", "push", "-q", "-m", "둘째")
+        return repo
+
+    @pytest.mark.parametrize("line", ["git stash drop", "git stash drop stash@{0}", "git stash drop stash@{1}", "git stash drop 1", "git stash drop -q", "git stash clear"])
+    def test_asks(self, stashed, line):
+        assert level(line) == L2
+
+    def test_shows_the_right_entry(self, stashed):
+        assert "둘째" in messages("git stash drop")
+        assert "첫째" not in messages("git stash drop")
+        assert "첫째" in messages("git stash drop stash@{1}")
+        assert "둘째" not in messages("git stash drop 1")
+
+    def test_clear_lists_all(self, stashed):
+        assert "첫째" in messages("git stash clear")
+        assert "둘째" in messages("git stash clear")
+
+    @pytest.mark.parametrize("line", ["git stash drop", "git stash clear"])
+    def test_nothing_stashed_passes(self, repo, line):
+        assert level(line) == L0
+
+    def test_missing_entry_passes(self, stashed):
+        assert level("git stash drop stash@{9}") == L0
+
+    @pytest.mark.parametrize("line", ["git stash", "git stash list", "git stash pop", "git stash push -m x", "git stash show"])
+    def test_other_stash_commands_pass(self, stashed, line):
+        assert level(line) == L0
+
+    def test_variable_asks(self, stashed):
+        assert level("git stash drop $S") == L2
+
+    def test_large_stash_needs_word(self, repo):
+        for i in range(60):
+            write(repo / f"f{i}")
+        git("add", "-A")
+        git("commit", "-qm", "many")
+        for i in range(60):
+            write(repo / f"f{i}", "changed\n")
+        git("stash", "-q")
+        verdict = judge("git stash drop")
+        assert verdict.level == L3
+        assert verdict.word == "delete"
+
+    def test_judging_deletes_nothing(self, stashed):
+        judge("git stash clear")
+        assert len(state.stash_entries(str(stashed))) == 2
+
+
 def test_outside_repo_git_refuses_by_itself(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    for line in ("git reset --hard", "git clean -fd", "git checkout .", "git restore ."):
+    for line in ("git reset --hard", "git clean -fd", "git checkout .", "git restore .", "git switch -f x", "git branch -D x", "git stash clear"):
         assert level(line) == L0

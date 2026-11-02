@@ -40,7 +40,7 @@ COMMANDS = {
     "log": Spec("커밋 기록 보기", first=(("--oneline", "한 줄씩"), ("--graph", "그래프로"))),
     "diff": Spec("변경 내용 보기", first=(("--staged", "스테이지된 변경"),)),
     "stash": Spec("변경 잠시 치워두기", space=True, max_args=1,
-                  first=(("pop", "치워둔 변경 복원"), ("list", "목록 보기"))),
+                  first=(("pop", "치워둔 변경 복원"), ("list", "목록 보기"), ("drop", "치워둔 변경 버리기"))),
     "merge": Spec("브랜치 합치기 · <브랜치>", space=True, max_args=1,
                   options=(("--no-ff", "병합 커밋 남기기"), ("--abort", "병합 취소"), ("--squash", "하나로 합치기"))),
     "rebase": Spec("커밋 다시 얹기 · <브랜치>", space=True, max_args=1,

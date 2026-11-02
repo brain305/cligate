@@ -1,13 +1,10 @@
-import glob
 import os
-import re
 
-from . import APP_NAME, gitpush, gitwork, parse, risk, state
+from . import APP_NAME, fileops, gitpush, gitwork, parse, paths, risk, state
 from .risk import Finding, L1, L2, L3, R2, R3, Verdict
 
 DANGEROUS = {"rm"}
-SYSTEM_DIRS = {"/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/opt", "/sbin", "/usr", "/var",
-               "/Applications", "/Library", "/System", "/Users"}
+COPY_COMMANDS = {"mv", "cp"}
 CRITICAL_DIR = "루트·홈·시스템 폴더"
 
 
@@ -30,16 +27,19 @@ def check(commands, offline=False):
     cwd = os.getcwd()
     for real, wrappers in _walk(commands):
         name = os.path.basename(real[0])
+        findings.extend(fileops.check_redirects(real, cwd))
         if real[0].startswith("$"):
             findings.append(Finding(L1, f"{APP_NAME}: 실행 전에는 무슨 명령인지 알 수 없어 확인하지 못했습니다"))
         elif name == "cd":
             cwd = _after_cd(real, cwd)  # cd x && rm y 의 y 는 x 안에 있다
         elif name in DANGEROUS:
             findings.extend(_check_rm(real, wrappers, cwd))
+        elif name in COPY_COMMANDS:
+            findings.extend(fileops.check_copy(real, wrappers, cwd))
         elif name == "git":
             findings.extend(_check_git(real, cwd, offline))
         elif name == "find" and "-delete" in real:
-            level = L3 if any(_is_critical(_resolve(w, cwd)) for w in _find_roots(real)) else L2
+            level = L3 if any(paths.is_critical(paths.resolve(w, cwd)) for w in _find_roots(real)) else L2
             findings.append(Finding(level, "find -delete: 찾은 파일을 삭제합니다. 되돌릴 수 없습니다"))
     return Verdict(list({f.message: f for f in findings}.values()))
 
@@ -57,8 +57,9 @@ def _check_rm(real, wrappers, cwd):
     known = []
     unknown = "xargs" in wrappers or not words  # xargs rm 은 실행 전에 대상을 알 수 없다
     for word in words:
-        target = _whole_dir(_resolve(_fill_vars(word), cwd)) if _fill_vars(word) else None
-        if target and _is_critical(target):
+        filled = paths.fill_vars(word)
+        target = _whole_dir(paths.resolve(filled, cwd)) if filled else None
+        if target and paths.is_critical(target):
             critical.append((target, CRITICAL_DIR))
         elif "$" in word or "{}" in word:  # rm $X, find -exec rm {}
             unknown = True
@@ -67,9 +68,9 @@ def _check_rm(real, wrappers, cwd):
 
     committed = []
     lost = []
-    for path in _expand(known, cwd):
-        paths, items = state.inspect(path)
-        committed.extend(paths)
+    for path in paths.expand(known, cwd):
+        files, items = state.inspect(path)
+        committed.extend(files)
         lost.extend(items)
 
     findings = []
@@ -91,26 +92,9 @@ def _check_rm(real, wrappers, cwd):
     return findings
 
 
-def _fill_vars(word):
-    """변수를 값으로 채운다. 셸처럼 없는 변수는 빈 문자열이 되므로 rm -rf $X/ 는 / 가 된다."""
-    return re.sub(r"\$\{?(\w+)\}?", lambda m: os.environ.get(m.group(1), ""), word)
-
-
-def _resolve(word, cwd):
-    word = os.path.expanduser(word)
-    return os.path.normpath(word if os.path.isabs(word) else os.path.join(cwd, word))
-
-
 def _whole_dir(path):
     """폴더 안 전부를 뜻하는 경로(~/*, *)는 그 폴더 자체로 본다."""
     return os.path.dirname(path) if os.path.basename(path) == "*" else path
-
-
-def _is_critical(path):
-    home = os.path.realpath(os.path.expanduser("~"))
-    real = os.path.realpath(path)
-    is_home_or_above = real == home or home.startswith(real.rstrip(os.sep) + os.sep)
-    return path in SYSTEM_DIRS or real in SYSTEM_DIRS or is_home_or_above
 
 
 def _find_roots(real):
@@ -133,20 +117,6 @@ def _operands(real):
         elif word == "--":
             only_operands = True
     return words
-
-
-def _expand(words, cwd):
-    """글롭과 ~ 를 펼쳐 실제로 있는 경로만 돌려준다. 셸이 지우기 전에 미리 계산한다."""
-    paths = []
-    for word in words:
-        word = os.path.expanduser(word)
-        absolute = word if os.path.isabs(word) else os.path.join(cwd, word)
-        if any(c in word for c in "*?["):
-            base = word if os.path.isabs(word) else os.path.join(glob.escape(cwd), word)
-            paths.extend(sorted(glob.glob(base)))
-        elif os.path.lexists(absolute):
-            paths.append(absolute)
-    return paths
 
 
 def _after_cd(real, cwd):
