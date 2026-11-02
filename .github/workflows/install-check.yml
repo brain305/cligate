@@ -152,13 +152,9 @@ jobs:
           wsl --set-default-version 1
           wsl --install -d Ubuntu --no-launch
           "::notice title=설치 종료::$LASTEXITCODE"
-          $exe = Get-Command ubuntu*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          "::notice title=실행 파일::$($exe.Source)"
-          & $exe.Source install --root
-          "::notice title=초기화 종료::$LASTEXITCODE"
           $list = wsl --list --verbose | Out-String
           "::notice title=배포판::$(($list -replace "`r?`n", ' / ').Trim())"
-          $name = wsl -d Ubuntu -u root -- uname -a
+          $name = wsl -d Ubuntu -u root -- uname -a 2>&1 | Out-String
           "::notice title=uname::$name"
           if (-not $name) { exit 1 }
 
