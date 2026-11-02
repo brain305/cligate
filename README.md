@@ -24,14 +24,50 @@ https://github.com/brain305/cligate
 | L2   | 근거를 보여주고 `y/N` 확인   | 미추적 파일 `rm`, 변경이 있을 때 `git reset --hard` |
 | L3   | 단어(`delete`, `force`) 입력 | `rm -rf /`, 팀원 커밋을 덮는 `git push --force` |
 
+```
+cligate > rm notes.txt
+[L2] rm: 되살릴 수 없는 파일이 있습니다
+    notes.txt  (git에 없음)
+    규모: 파일 1개, 34B
+실행할까요? (y/N)
+
+cligate > git push --force
+[L3] git push --force: origin/feature/login 의 커밋 2개가 사라집니다
+    b2b56af  fix: 로그인 리다이렉트 수정  (팀원, 59초 전)
+    1cde93d  test: 로그인 테스트 추가  (팀원, 59초 전)
+    권장  git push --force-with-lease --force-if-includes  (원격이 바뀌었으면 거부됩니다)
+진행하려면 force 입력:
+```
+
+입력이 0.5초 멈추면 자동완성 목록이 뜹니다. TAB은 바로 열립니다. 위험한 후보는 맨 아래에 `⚠`로 표시됩니다.
+
 ## 설치
+
+Python 3.9 이상, git이 필요합니다.
+
+**1. pipx 설치**
+
+```bash
+brew install pipx && pipx ensurepath                 # macOS
+sudo apt install pipx && pipx ensurepath             # Ubuntu, Debian
+python3 -m ensurepip --user && python3 -m pip install --user pipx && python3 -m pipx ensurepath   # RHEL, Rocky
+```
+
+**2. 새 터미널을 열고 CliGate 설치**
 
 ```bash
 pipx install git+https://github.com/brain305/cligate.git
 cligate
 ```
 
-Python 3.9 이상, git이 필요합니다. `pipx`가 없으면 `python3 -m pip install --user pipx`로 설치합니다. 끝내려면 `exit`를 입력합니다.
+끝내려면 `exit`를 입력합니다. `cligate: command not found`가 나오면 터미널을 새로 열어보세요.
+
+**업데이트와 삭제**
+
+```bash
+pipx upgrade cligate
+pipx uninstall cligate
+```
 
 ## 주의
 
