@@ -122,6 +122,34 @@ def test_many_committed_files_ask_with_note(repo):
     assert "앞 50개만" in messages("rm f*.txt")
 
 
+@pytest.mark.parametrize("name", SHELLS)
+def test_missing_command_message_is_plain(repo, name, monkeypatch, no_loader, capfd):
+    monkeypatch.setenv("SHELL", name)
+    assert runner.run("nosuchcommand-xyz") == 127
+    err = capfd.readouterr().err
+    assert "nosuchcommand-xyz" in err
+    assert "eval" not in err
+
+
+class TestEvalOnlyForAliases:
+    @pytest.fixture(autouse=True)
+    def aliases(self, monkeypatch, no_loader):
+        monkeypatch.setattr(shell, "_aliases", {"gs": "git status"})
+        monkeypatch.setattr(shell, "_definitions", ["alias gs='git status'"])
+
+    @pytest.mark.parametrize("line", ["gs", "gs -s", "ls && gs", "ls; gs", "ls | gs", "(gs)"])
+    def test_uses_eval(self, line):
+        assert "eval" in shell.script(line, "true")
+        assert "alias gs=" in shell.script(line, "true")
+
+    @pytest.mark.parametrize("line", ["ls", "echo gsx", "git status"])
+    def test_plain(self, line):
+        script = shell.script(line, "true")
+        assert "eval" not in script
+        assert "alias" not in script
+        assert script.endswith(line)
+
+
 class TestParsingAliases:
     def test_zsh_format(self):
         output = "alias gs='git status'\nalias ll='ls -l'\nalias -g G='| grep'\nalias -s py=vim\nalias -- -='cd -'\n"

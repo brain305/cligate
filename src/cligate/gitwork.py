@@ -1,4 +1,4 @@
-from . import parse, risk, state
+from . import parse, risk, state, statusline
 from .risk import Finding, L1, L2, R2, R3, S1, S2
 
 CHECKOUT_VALUE_OPTS = {"-b", "-B", "--orphan"}
@@ -9,7 +9,7 @@ CLEAN_VALUE_OPTS = {"-e", "--exclude"}
 def check(sub, args, cwd):
     """작업 폴더의 변경을 날리는 git 명령을 판정한다. 저장소 밖이면 git 이 알아서 거부한다."""
     handler = {"reset": _reset, "clean": _clean, "checkout": _checkout, "restore": _restore,
-               "switch": _switch, "branch": _branch, "stash": _stash}.get(sub)
+               "switch": _switch, "branch": _branch, "stash": _stash, "commit": _commit}.get(sub)
     if handler is None or state.repo_root(cwd) is None:
         return []
     return handler(parse.strip_redirects(args), cwd)
@@ -91,6 +91,16 @@ def _restore(args, cwd):
     if any("$" in p for p in paths):
         return [Finding(L2, "git restore: 되돌릴 파일을 확인할 수 없습니다")]
     return _lost_work("git restore", state.uncommitted(cwd, paths) if staged else state.unstaged(cwd, paths), cwd)
+
+
+def _commit(args, cwd):
+    """받지 않은 커밋이 있는데 커밋하면 갈라진다. 커밋은 막지 않고 먼저 받을 수 있다고 알린다."""
+    status = statusline.latest(cwd)
+    if status is None or not status.behind or "--dry-run" in args:
+        return []
+    # 스테이지된 변경이 있으면 그냥 pull --rebase 는 거부되므로 --autostash 를 권한다
+    return [Finding(L1, f"git commit: 원격에 받지 않은 커밋이 {status.behind}개 있습니다. 먼저 받으면 갈라지지 않습니다"
+                        "\n    권장  git pull --rebase --autostash")]
 
 
 def _switch(args, cwd):

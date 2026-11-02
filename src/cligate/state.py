@@ -264,6 +264,11 @@ def stash_files(ref, cwd):
     return out.splitlines() if out else []
 
 
+def same_commit(ref, sha, cwd):
+    out = _git(["rev-parse", "--verify", "-q", f"{ref}^{{commit}}"], cwd)
+    return out is not None and out.strip() == sha
+
+
 def is_commit(ref, cwd):
     return _git(["rev-parse", "--verify", "-q", f"{ref}^{{commit}}"], cwd) is not None
 
@@ -340,6 +345,14 @@ def remote_only_commits(remote, branch, local, remote_sha, cwd):
     # --cherry-pick 은 rebase 로 내용이 그대로 옮겨진 내 커밋을 뺀다
     out = _git(["log", "--cherry-pick", "--right-only", COMMIT_FORMAT, f"{local}...{remote_sha}"], cwd)
     return None if out is None else out.splitlines()
+
+
+def unpulled_commits(remote, branch, local, remote_sha, cwd):
+    """원격에는 있고 local 에는 없는 커밋. 하나라도 있으면 평범한 push 는 거부된다. 확인하지 못하면 빈 목록."""
+    if not ensure_commit(remote, branch, remote_sha, cwd) or not is_commit(local, cwd):
+        return []
+    out = _git(["log", COMMIT_FORMAT, f"{local}..{remote_sha}"], cwd)
+    return out.splitlines() if out else []
 
 
 def deleted_commits(remote, branch, remote_sha, cwd):

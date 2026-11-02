@@ -87,8 +87,8 @@ class TestStaleInfo:
 
 
 @pytest.mark.parametrize("line, expected", [
-    ("git push -f origin main", L3),                # 보호 브랜치는 상태와 관계없다
-    ("git push origin --delete main", L3),
+    ("git push origin --delete main", L3),          # 보호 브랜치는 상태와 관계없다
+    ("git push -f origin main", L2),                # 같아서 바뀌는 게 없어도 원격을 몰라 L2 아래로 안 내린다
     ("git push --all -f", L3),
     ("git push origin --delete gone", L3),          # 추적 정보만 있는 커밋
     ("git push origin --delete mine", L2),

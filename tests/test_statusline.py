@@ -20,7 +20,7 @@ def monitor(monkeypatch):
 
 
 def text(monitor):
-    return "".join(part for _, part in monitor.prompt("cligate"))
+    return "".join(part for _, part in monitor.status_parts())
 
 
 class TestKinds:
@@ -60,7 +60,7 @@ class TestKinds:
     def test_outside_repo(self, tmp_path, monkeypatch, monitor):
         monkeypatch.chdir(tmp_path)
         assert monitor.check_once() is None
-        assert text(monitor) == "cligate > "
+        assert text(monitor) == ""
 
     def test_detached(self, pushed, monitor):
         git("checkout", "-q", "--detach")
@@ -173,14 +173,13 @@ class TestDisplay:
     def test_report_wording(self, kind, ahead, behind, expected):
         assert statusline.describe(statusline.Status("/", "main", kind, ahead, behind))[0] == expected
 
-    def test_above_the_input_line(self, pushed, monitor):
+    def test_one_line_with_branch_state_and_age(self, pushed, monitor):
         monitor.check_once()
-        lines = text(monitor).split("\n")
-        assert len(lines) == 2
-        assert "feat" in lines[0]
-        assert "↓2 pull 필요" in lines[0]
-        assert "원격 기준 0초 전" in lines[0]
-        assert lines[1] == "cligate > "
+        line = text(monitor)
+        assert "\n" not in line
+        assert "feat" in line
+        assert "↓2 pull 필요" in line
+        assert "원격 기준 0초 전" in line
 
     def test_age(self):
         now = [100.0]
@@ -197,28 +196,6 @@ class TestDisplay:
 
 
 class TestSharedWithJudgementAndCompletion:
-    def test_plain_push_warns_it_will_be_rejected(self, pushed, monitor):
-        monitor.check_once()
-        assert level("git push") == 1
-        assert "거부" in messages("git push")
-        assert "git pull --rebase" in messages("git push")
-
-    def test_plain_push_to_current_branch(self, pushed, monitor):
-        monitor.check_once()
-        assert level("git push origin feat") == 1
-
-    def test_push_to_other_branch_is_quiet(self, pushed, monitor):
-        monitor.check_once()
-        assert level("git push origin main") == 0
-
-    def test_up_to_date_push_is_quiet(self, pushed, monitor):
-        git("checkout", "-q", "main")
-        monitor.check_once()
-        assert level("git push") == 0
-
-    def test_no_status_means_no_notice(self, pushed, monitor):
-        assert level("git push") == 0
-
     def test_force_push_judgement_unchanged(self, pushed, monitor):
         monitor.check_once()
         assert level("git push --force") == 3
@@ -227,6 +204,45 @@ class TestSharedWithJudgementAndCompletion:
         assert [c.value for c in complete.candidates("git pu", str(pushed), curated=True)][0] == "push"
         monitor.check_once()
         assert [c.value for c in complete.candidates("git pu", str(pushed), curated=True)][0] == "pull"
+
+
+class TestCommitNotice:
+    def test_notifies_when_behind(self, pushed, monitor):
+        monitor.check_once()
+        write(pushed / "new", "x\n")
+        git("add", "new")
+        assert level('git commit -m "x"') == 1
+        assert "먼저 받으면 갈라지지 않습니다" in messages('git commit -m "x"')
+
+    def test_advice_really_works_with_staged_changes(self, pushed, monitor):
+        monitor.check_once()
+        write(pushed / "new", "x\n")
+        git("add", "new")
+        git("pull", "-q", "--rebase", "--autostash")
+        assert (pushed / "new").exists()
+        assert git("rev-list", "--count", "HEAD..origin/feat") == "0"
+
+    @pytest.mark.parametrize("line", ["git status", "git add .", "git commit --dry-run"])
+    def test_quiet_otherwise(self, pushed, monitor, line):
+        monitor.check_once()
+        assert level(line) == 0
+
+    def test_up_to_date_is_quiet(self, pushed, monitor):
+        git("checkout", "-q", "main")
+        monitor.check_once()
+        assert level('git commit -m "x"') == 0
+
+    def test_unknown_status_is_quiet(self, pushed, monitor):
+        assert level('git commit -m "x"') == 0
+
+    def test_not_blocked_and_recorded(self, pushed):
+        write(pushed / "new", "x\n")
+        git("add", "new", cwd=pushed)
+        result = subprocess.run([sys.executable, "-c", "from cligate.cli import main; main()"],
+                                input='true\ntrue\ngit commit -q -m ok\nexit\n', cwd=pushed,
+                                capture_output=True, text=True, timeout=30)
+        assert git("log", "-1", "--format=%s", cwd=pushed) == "ok"
+        assert "(y/N)" not in result.stdout
 
 
 class TestRealTerminal:

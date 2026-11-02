@@ -1,4 +1,5 @@
 import os
+import re
 import select
 import shutil
 import subprocess
@@ -477,6 +478,7 @@ class TestCurated:
 
     def test_force_is_visible_with_description(self, pushed):
         git("checkout", "-q", "main")
+        commit(pushed, "hotfix")  # 원격과 달라야 보호 브랜치를 실제로 바꾼다
         force = candidates("git push --", str(pushed), curated=True)[-1]
         assert "L3" in force.meta
         assert "덮어씀" in force.meta
@@ -646,7 +648,7 @@ class TestRealTerminal:
         result = self._read(fd, 1.0)
         self._quit(pid, fd)
         assert "<이름>" in shown
-        assert "main" in result  # git branch 가 그대로 실행되어 브랜치 목록이 나온다
+        assert "* main" in re.sub(r"\x1b\[[0-9;]*m", "", result)  # git branch 가 그대로 실행되어 브랜치 목록이 나온다
 
     def test_space_accepts_and_continues_when_several(self, pushed):
         pid, fd = self._spawn(pushed)
@@ -672,6 +674,7 @@ class TestRealTerminal:
 
     def test_no_repeat_after_finished_merge(self, repo):
         git("branch", "side")
+        git("branch", "other")
         pid, fd = self._spawn(repo)
         self._read(fd, 1.0)
         os.write(fd, b"git merge ")
@@ -679,8 +682,8 @@ class TestRealTerminal:
         os.write(fd, b"side ")
         later = self._read(fd, 1.2)
         self._quit(pid, fd)
-        assert "main" in first
-        assert "main" not in later
+        assert "other" in first
+        assert "other" not in later
 
     def test_selecting_candidate_inserts_it(self, repo):
         pid, fd = self._spawn(repo)

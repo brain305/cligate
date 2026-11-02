@@ -79,6 +79,43 @@ class TestPush:
         assert git("ls-remote", "--heads", "origin", "gone", cwd=pushed) != ""
 
 
+class TestAnswerStaysOnScreen:
+    def test_word_shown(self, repo):
+        result = run(["rm -rf .git", "delete", "exit"], repo)
+        assert "입력: delete" in result.stdout
+
+    def test_wrong_word_shown(self, repo):
+        result = run(["rm -rf .git", "y", "exit"], repo)
+        assert "입력: y" in result.stdout
+        assert "취소했습니다" in result.stdout
+
+    def test_yes_shown(self, repo):
+        write(repo / "new.txt")
+        assert "입력: y" in run(["rm new.txt", "y", "exit"], repo).stdout
+
+    def test_plain_enter_shows_only_cancel(self, repo):
+        write(repo / "new.txt")
+        result = run(["rm new.txt", "", "exit"], repo)
+        assert "입력:" not in result.stdout
+        assert "취소했습니다" in result.stdout
+
+
+class TestUnpulledPush:
+    def test_cancel_does_not_push(self, pushed):
+        commit(pushed, "mine2")
+        result = run(["git push", "", "exit"], pushed)
+        assert "받지 않은 커밋 2개" in result.stdout
+        assert "취소했습니다" in result.stdout
+        assert "rejected" not in result.stdout + result.stderr
+
+    def test_after_pull_pushes_without_asking(self, pushed):
+        git("pull", "-q", "--no-rebase", cwd=pushed)
+        commit(pushed, "mine2")
+        before = git("ls-remote", "origin", "refs/heads/feat", cwd=pushed)
+        run(["git push", "exit"], pushed)
+        assert git("ls-remote", "origin", "refs/heads/feat", cwd=pushed) != before
+
+
 class TestShell:
     def test_compound_cd_persists(self, repo):
         assert str((repo / "d").resolve()) in run(["cd d && cd .", "pwd", "exit"], repo).stdout

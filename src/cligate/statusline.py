@@ -1,4 +1,4 @@
-"""입력 줄 바로 위에 원격 상태를 보여준다. 조사는 백그라운드에서 하므로 입력을 막지 않는다.
+"""입력창 바로 아래에 원격 상태를 보여준다. 조사는 백그라운드에서 하므로 입력을 막지 않는다.
 
 평범한 git fetch 를 쓰지 않는다. origin/main 이 갱신되면 --force-with-lease 가 아직 보지 못한 팀원
 커밋을 본 것으로 착각해 덮어쓸 수 있기 때문이다. 원격에 직접 물어 추적 정보를 그대로 둔다.
@@ -90,17 +90,16 @@ class Monitor:
         self._paused = False
         self._wake.set()
 
-    def prompt(self, name):
-        """입력 줄의 문구. 저장소 안이면 그 위에 상태 줄을 붙인다."""
-        line = [("", f"{name} > ")]
+    def status_parts(self):
+        """상태 줄의 문구. 저장소 밖이면 비어 있다."""
         status = self.status
         if status is None or status.branch is None:
-            return line
+            return []
         text, color = describe(status)
-        parts = [("reverse", f" {status.branch} "), ("", "  "), (f"fg:{color}", text)]
+        parts = [("bold", status.branch), ("", "  "), (f"fg:{color}", text)]
         if status.kind not in (NO_UPSTREAM, FAILED) and status.checked_at:
-            parts.append(("fg:ansibrightblack", f"   원격 기준 {_age(self.clock() - status.checked_at)}"))
-        return [*parts, ("", "\n"), *line]
+            parts.append(("fg:ansibrightblack", f"  ·  원격 기준 {_age(self.clock() - status.checked_at)}"))
+        return parts
 
     def check_once(self, network=True):
         """상태를 한 번 조사해 저장한다."""
