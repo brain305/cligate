@@ -183,7 +183,7 @@ jobs:
           URL="$URL" su demo -c 'bash /tmp/in.sh'
           '@
           $url = "git+https://github.com/${{ github.repository }}.git@${{ github.sha }}"
-          $script = ($script -replace "`r`n", "`n") -replace '(?m)^          ', ''
+          $script = $script -replace "`r`n", "`n"
           [IO.File]::WriteAllText("C:\wsl-check.sh", $script)
           wsl -d Ubuntu -u root -- env "URL=$url" bash /mnt/c/wsl-check.sh
 
@@ -242,7 +242,7 @@ jobs:
           read(1)
           os.write(fd, b"exit\r")
           '@
-          $code = ($code -replace "`r`n", "`n") -replace '(?m)^          ', ''
+          $code = $code -replace "`r`n", "`n"
           [IO.File]::WriteAllText("C:\\wsl-more.py", $code)
           $sh = @'
           PY=$(ls -d $HOME/.local/share/pipx/venvs/cligate/bin/python $HOME/.local/pipx/venvs/cligate/bin/python 2>/dev/null | head -1)
@@ -253,7 +253,7 @@ jobs:
           [ "$status" = 0 ] || echo "::notice title=오류::$(tail -c 300 /tmp/err | tr '\n' ' ')"
           exit $status
           '@
-          $sh = ($sh -replace "`r`n", "`n") -replace '(?m)^          ', ''
+          $sh = $sh -replace "`r`n", "`n"
           [IO.File]::WriteAllText("C:\\wsl-more.sh", $sh)
           wsl -d Ubuntu -u root -- chmod -R a+rX /mnt/c/wsl-more.py /mnt/c/wsl-more.sh
           wsl -d Ubuntu -u demo -- bash /mnt/c/wsl-more.sh
