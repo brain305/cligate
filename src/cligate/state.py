@@ -74,6 +74,7 @@ class Snapshot:
     upstream: bool = False
     initial: bool = False
     staged: bool = False
+    to_add: bool = False
     changed: bool = False
     untracked: bool = False
     conflicts: bool = False
@@ -104,11 +105,14 @@ def snapshot(cwd):
         elif line.startswith("u "):
             snap.conflicts = True
             snap.changed = True
+            snap.to_add = True
         elif line.startswith(("1 ", "2 ")):
             snap.changed = True
             snap.staged = snap.staged or line[2] != "."
+            snap.to_add = snap.to_add or line[3] != "."
         elif line.startswith("? "):
             snap.untracked = True
+            snap.to_add = True
     paths = _git(["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply"], cwd) or ""
     snap.rebasing = any(os.path.isdir(os.path.join(cwd, p)) for p in paths.splitlines())
     return snap
@@ -171,6 +175,27 @@ def has_parent(cwd):
 
 def has_stash(cwd):
     return _git(["rev-parse", "--verify", "-q", "refs/stash"], cwd) is not None
+
+
+def unadded_outside(cwd):
+    """add 가 필요한데 지금 폴더 바깥에 있는 파일을 현재 폴더 기준 경로로 돌려준다."""
+    top = repo_root(cwd)
+    status = _git(["status", "--porcelain", "-z", "--untracked-files=all"], cwd)
+    if top is None or status is None:
+        return []
+    base = os.path.realpath(cwd)
+    found = []
+    entries = iter(status.split("\0"))
+    for entry in entries:
+        if not entry:
+            continue
+        code, name = entry[:2], entry[3:]
+        if code[0] in "RC":
+            next(entries, None)  # 이름 변경은 원래 이름이 한 칸 더 온다
+        path = os.path.realpath(os.path.join(top, name))
+        if code[1] != " " and not path.startswith(base + os.sep):
+            found.append(os.path.relpath(path, base))
+    return sorted(found)
 
 
 def changed_paths(cwd, tracked_only=False):

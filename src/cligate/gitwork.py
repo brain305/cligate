@@ -1,3 +1,5 @@
+import os
+
 from . import parse, risk, state, statusline
 from .risk import Finding, L1, L2, R2, R3, S1, S2
 
@@ -9,7 +11,7 @@ CLEAN_VALUE_OPTS = {"-e", "--exclude"}
 def check(sub, args, cwd):
     """작업 폴더의 변경을 날리는 git 명령을 판정한다. 저장소 밖이면 git 이 알아서 거부한다."""
     handler = {"reset": _reset, "clean": _clean, "checkout": _checkout, "restore": _restore,
-               "switch": _switch, "branch": _branch, "stash": _stash, "commit": _commit}.get(sub)
+               "switch": _switch, "branch": _branch, "stash": _stash, "commit": _commit, "add": _add}.get(sub)
     if handler is None or state.repo_root(cwd) is None:
         return []
     return handler(parse.strip_redirects(args), cwd)
@@ -91,6 +93,19 @@ def _restore(args, cwd):
     if any("$" in p for p in paths):
         return [Finding(L2, "git restore: 되돌릴 파일을 확인할 수 없습니다")]
     return _lost_work("git restore", state.uncommitted(cwd, paths) if staged else state.unstaged(cwd, paths), cwd)
+
+
+def _add(args, cwd):
+    """하위 폴더의 git add . 는 그 폴더 아래만 추가한다. 상태 줄의 숫자가 왜 안 줄어드는지 알 수 있게 알린다."""
+    _, words, paths = _split(args, set())
+    if "." not in words + paths or "--dry-run" in args or "-n" in args:
+        return []
+    outside = state.unadded_outside(cwd)
+    if not outside:
+        return []
+    folder = os.path.basename(os.path.realpath(cwd))
+    title = f"git add .: 지금 폴더({folder}) 아래만 추가합니다. 바깥에 {len(outside)}개가 남습니다"
+    return [Finding(L1, risk.list_commits(title, outside) + "\n    전체를 추가하려면  git add -A")]
 
 
 def _commit(args, cwd):

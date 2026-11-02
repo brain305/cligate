@@ -176,12 +176,13 @@ def _git_subcommands(word, cwd, curated):
     remote = statusline.latest(cwd)
     if snap and remote:  # 상태 줄이 원격에 직접 물어본 값이 추적 정보보다 새롭다
         snap.ahead, snap.behind = remote.ahead, remote.behind
-    up, down = _state_rules(snap)
+    publish = _publish_command(snap, cwd)
+    up, down = _state_rules(snap, publish)
     known = learn.rank([*gitspec.COMMANDS, *learn.frequent("git")], "git")
     # 표에 맞는 명령이 있으면 archimport 같이 거의 안 쓰는 명령은 자동 목록에 띄우지 않는다
     others = [] if curated and any(n.startswith(word) for n in known) else state.git_commands()
     real = _real_values(word, snap, cwd)
-    meta = {**gitspec.RULE_HINTS, **{c.value: c.meta for c in real}}
+    meta = {**gitspec.RULE_HINTS, publish: "upstream 설정", **{c.value: c.meta for c in real}}
     # 상태 규칙의 "rebase --continue" 처럼 옵션까지 붙은 추천과 실제 값으로 채운 명령도 후보로 넣는다
     ordered = [u for u in up if " " in u] + [c.value for c in real] + known + others
     ranked = _rank([v for v in ordered if v.startswith(word)], up, down)
@@ -193,11 +194,9 @@ def _real_values(word, snap, cwd):
     if not word or snap is None:
         return []
     found = []
-    if "push".startswith(word) and snap.branch and not snap.upstream and not snap.initial:
-        remotes = state.remotes(cwd)
-        if remotes:
-            remote = "origin" if "origin" in remotes else remotes[0]
-            found.append(Candidate(f"push -u {remote} {snap.branch}", "upstream 설정"))
+    publish = _publish_command(snap, cwd)
+    if "push".startswith(word) and publish:
+        found.append(Candidate(publish, "upstream 설정"))
     if "switch".startswith(word):
         previous = state.previous_branch(cwd)
         if previous:
@@ -234,11 +233,43 @@ def _rank(values, up, down):
     return sorted(dict.fromkeys(values), key=key)
 
 
-def _state_rules(snap):
-    """보고서 2.2.4 의 상태 규칙. 근거는 각 줄의 git advice 이다. (위로, 아래로) 를 돌려준다."""
+def _publish_command(snap, cwd):
+    """올린 적 없는 브랜치를 올리는 명령. 그냥 git push 는 upstream 이 없어 실패한다."""
+    if snap is None or not snap.branch or snap.upstream or snap.initial:
+        return None
+    remotes = state.remotes(cwd)
+    if not remotes:
+        return None
+    return f"push -u {'origin' if 'origin' in remotes else remotes[0]} {snap.branch}"
+
+
+def _state_rules(snap, publish=None):
+    """상태 줄의 알림을 해야 할 일의 순서로 옮긴다. (위로, 아래로) 를 돌려준다.
+
+    순서는 작업 흐름을 따른다. 충돌 해결, 받기, add, commit, push 순이다. 근거는 각 줄의 git advice 이다.
+    """
     up, down = [], []
     if snap is None:
         return up, down
+
+    def rule(condition, raise_, lower=()):
+        if condition:
+            up.extend(raise_)
+            down.extend(lower)
+
+    working = not snap.conflicts and not snap.rebasing  # 충돌을 풀기 전에는 다른 일을 권하지 않는다
+    rule(snap.rebasing, ["rebase --continue", "rebase --abort", "add"], ["rebase", "merge"])  # advice.resolveConflict
+    rule(snap.conflicts, ["add", "mergetool"], ["commit"])  # advice.mergeConflict
+    rule(snap.behind and snap.ahead, ["pull --rebase"], ["push"])  # advice.diverging
+    rule(snap.behind and not snap.ahead, ["pull", "--force-with-lease"], ["push"])  # advice.pushFetchFirst
+    rule(working and snap.to_add, ["add"])  # advice.statusHints
+    rule(working and snap.staged, ["commit"])  # advice.statusHints
+    rule(working and snap.ahead and not snap.behind, ["push"])  # advice.statusAheadBehind
+    rule(working and publish, [publish])  # 올린 적 없는 브랜치
+    rule(working and snap.changed, ["stash"], ["merge"])  # advice.commitBeforeMerge
+    rule(snap.detached, ["switch -c"])  # advice.detachedHead
+    rule(not snap.changed and not snap.untracked, [], ["add", "commit", "stash"])  # advice.statusHints
+    return up, down
 
     def rule(condition, raise_, lower=()):
         if condition:
