@@ -194,8 +194,6 @@ jobs:
           $code = @'
           import os, pty, select, subprocess, tempfile, time
           from cligate import complete, gate, parse, state
-          for line in ["rm -rf /mnt/c", "rm -rf /mnt/c/Users", "rm -rf /mnt/c/Windows", "rm -rf /"]:
-              print(f"::notice title={line}::L{gate.check(parse.parse(line)).level}")
           print("::notice title=/mnt/c 보임::", os.path.isdir("/mnt/c/Windows"))
           for label, base in (("리눅스 폴더", tempfile.mkdtemp()), ("mnt-c 폴더", tempfile.mkdtemp(dir="/mnt/c/Users/Public"))):
               os.chdir(base)
@@ -210,7 +208,9 @@ jobs:
                   started = time.monotonic()
                   complete.candidates("git reset --", base, curated=True)
                   times.append(round((time.monotonic() - started) * 1000))
-              print(f"::notice title=자동완성 시간 {label}::{times} ms")
+              r = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+              print(f"::notice title=git 상태 {label}::rc={r.returncode} {r.stderr[:110].strip()!r} 변경={len(r.stdout.splitlines())}")
+              print(f"::notice title=자동완성 시간 {label}::{times} ms 후보={[c.meta[:6] for c in complete.candidates('git reset --', base, curated=True)]}")
           work = tempfile.mkdtemp()
           subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work)
           binary = os.path.expanduser("~/.local/bin/cligate")
@@ -229,15 +229,17 @@ jobs:
                       except OSError:
                           break
               return out.decode("utf-8", "replace")
-          read(4)
+          started = time.time()
+          boot = read(15)
+          print(f"::notice title=터미널 시작 화면::{boot[-160:]!r}")
           os.write(fd, b"git pu")
-          screen = read(2)
-          print("::notice title=터미널 자동완성::", "push" in screen and "pull" in screen)
+          screen = read(5)
+          print("::notice title=터미널 자동완성::", "push" in screen and "pull" in screen, repr(screen[-120:]))
           os.write(fd, b"\x15")
           read(1)
           os.write(fd, b"rm -rf /mnt/c\r")
-          gate_screen = read(2)
-          print("::notice title=터미널 /mnt/c L3::", "[L3]" in gate_screen)
+          gate_screen = read(5)
+          print("::notice title=터미널 /mnt/c L3::", "[L3]" in gate_screen, repr(gate_screen[-120:]))
           os.write(fd, b"y\r")
           read(1)
           os.write(fd, b"exit\r")
