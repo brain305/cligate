@@ -1,0 +1,107 @@
+# README 의 설치 순서를 깨끗한 환경에서 그대로 따라 해 본다. 개발자 컴퓨터를 쓰지 않는다.
+name: install-check
+
+on:
+  push:
+    branches: [ci/install-check]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, login: /bin/zsh, rc: .zshrc, install_pipx: "brew install pipx" }
+          - { os: ubuntu-24.04, login: /bin/bash, rc: .bashrc, install_pipx: "sudo apt-get update -qq && sudo apt-get install -y -qq pipx" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      SHELL: ${{ matrix.login }}
+    steps:
+      - name: 환경 정보
+        run: |
+          uname -a; whoami; python3 --version; git --version; echo "SHELL=$SHELL"
+          echo "미리 설치된 pipx: $(command -v pipx || echo 없음)"
+          echo "미리 설치된 cligate: $(command -v cligate || echo 없음)"
+
+      - name: README 1단계 pipx 설치와 경로 등록
+        run: |
+          ${{ matrix.install_pipx }}
+          pipx ensurepath
+          grep -n "local/bin" "$HOME/${{ matrix.rc }}"
+
+      - name: README 2단계 CliGate 설치
+        run: pipx install git+https://github.com/brain305/cligate.git
+
+      - name: 새 터미널에서 cligate 찾기
+        run: ${{ matrix.login }} -ic 'command -v cligate'
+
+      - name: 위험 판정 동작
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          work=$(mktemp -d); cd "$work"
+          git init -q -b main; git config user.email a@b; git config user.name a
+          echo v > a; git add a; git commit -qm init; echo u > u
+          # rm a 는 L1 이라 지워지고, rm u 는 L2 에서 취소하면 남고, 마지막 종료 코드는 그대로 나와야 한다
+          set +e
+          printf 'rm a\nrm u\n\nexit 4\n' | cligate > out.txt 2>&1
+          code=$?
+          set -e
+          cat out.txt
+          test "$code" = 4
+          test ! -e a
+          test -e u
+          grep -q '\[L1\]' out.txt
+          grep -q '\[L2\]' out.txt
+
+      - name: 실제 터미널에서 자동완성과 L3
+        shell: python3 {0}
+        run: |
+          import os, pty, select, subprocess, sys, tempfile, time
+          work = tempfile.mkdtemp()
+          for cmd in (["git", "init", "-q", "-b", "main"], ["git", "commit", "-q", "--allow-empty", "-m", "i",
+                      "--author", "a <a@b>"]):
+              subprocess.run(cmd, cwd=work, check=True,
+                             env=dict(os.environ, GIT_COMMITTER_NAME="a", GIT_COMMITTER_EMAIL="a@b"))
+          binary = os.path.expanduser("~/.local/bin/cligate")
+          pid, fd = pty.fork()
+          if pid == 0:
+              os.chdir(work)
+              os.environ.update(TERM="xterm-256color", PROMPT_TOOLKIT_NO_CPR="1")
+              os.execv(binary, [binary])
+          def read(seconds):
+              out, end = b"", time.time() + seconds
+              while time.time() < end:
+                  ready, _, _ = select.select([fd], [], [], 0.05)
+                  if ready:
+                      try:
+                          out += os.read(fd, 65536)
+                      except OSError:
+                          break
+              return out.decode("utf-8", "replace")
+          read(4)
+          os.write(fd, b"git pu")
+          screen = read(2)
+          print(repr(screen[-300:]))
+          assert "push" in screen and "pull" in screen, "자동완성 목록이 뜨지 않음"
+          os.write(fd, b"\x15")
+          read(1)
+          os.write(fd, b"rm -rf /\r")
+          gate = read(2)
+          print(repr(gate[-300:]))
+          assert "[L3]" in gate and "delete" in gate, "L3 확인이 뜨지 않음"
+          os.write(fd, b"y\r")
+          after = read(2)
+          assert "취소" in after, "y 로 취소되지 않음"
+          os.write(fd, b"exit\r")
+          read(1)
+
+      - name: 업데이트와 삭제
+        run: |
+          pipx upgrade cligate
+          pipx uninstall cligate
+          test ! -e "$HOME/.local/bin/cligate"
