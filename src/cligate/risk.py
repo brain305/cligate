@@ -77,8 +77,8 @@ def describe(title, items, cwd):
     lines = [title]
     for path, reason in items[:MAX_LISTED]:
         shown = os.path.relpath(path, os.path.realpath(cwd))
-        if shown.startswith(".."):
-            shown = os.path.normpath(path)  # 현재 폴더 바깥은 전체 경로가 읽기 쉽다
+        if shown == "." or shown.startswith(".."):
+            shown = os.path.normpath(path)  # 현재 폴더 자신과 그 바깥은 전체 경로가 읽기 쉽다
         lines.append(f"    {shown}  ({reason})")
     if len(items) > MAX_LISTED:
         lines.append(f"    ... 외 {len(items) - MAX_LISTED}개")

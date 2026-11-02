@@ -7,6 +7,9 @@ set -e
 cd "$HOME"
 rm -rf remote.git teammate project
 
+# 네트워크를 끄면 컨테이너가 자기 이름을 찾지 못해 sudo 가 경고를 낸다
+echo "127.0.0.1 $(hostname)" | sudo tee -a /etc/hosts >/dev/null 2>&1
+
 # 별칭 안에 숨은 위험을 보여주기 위한 설정
 cat > "$HOME/.zshrc" <<'RC'
 alias rmf='rm -rf'

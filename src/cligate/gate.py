@@ -56,7 +56,8 @@ def _check_rm(real, wrappers, cwd):
     words = _operands(real)
     critical = []
     known = []
-    unknown = "xargs" in wrappers or not words  # xargs rm 은 실행 전에 대상을 알 수 없다
+    # xargs rm 은 실행 전에 대상을 알 수 없다. 대상 없는 rm 은 아무것도 지우지 않는다
+    unknown = "xargs" in wrappers
     for word in words:
         filled = paths.fill_vars(word)
         target = _whole_dir(paths.resolve(filled, cwd)) if filled else None

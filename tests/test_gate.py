@@ -30,6 +30,9 @@ from cligate.risk import L0, L1, L2, L3
     "sudo -l",
     "env",
     "rm nofile",
+    "rm",
+    "rm -rf",
+    "sudo rm -rf",
 ])
 def test_harmless_lines_pass(repo, line):
     assert level(line) == L0
@@ -203,6 +206,16 @@ def test_always_needs_word(repo, line):
 @pytest.mark.parametrize("line", ["rm -rf ~/nofile", "rm -rf /usr/local/nofile", "rm -rf /tmp/cligate-nofile"])
 def test_missing_paths_under_critical_dirs_pass(repo, line):
     assert level(line) == L0
+
+
+def test_root_is_shown_as_root_from_anywhere(repo, monkeypatch):
+    assert "    /  (" in messages("rm -rf /")
+    monkeypatch.chdir("/")
+    assert "    /  (" in messages("rm -rf /")
+
+
+def test_current_folder_is_shown_by_full_path(repo):
+    assert f"    {os.path.realpath(repo)}  (" in messages("rm -rf .")
 
 
 def test_repo_named_from_outside(repo, monkeypatch):
