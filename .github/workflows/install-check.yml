@@ -120,3 +120,90 @@ jobs:
           pipx upgrade cligate
           pipx uninstall cligate
           test ! -e "$HOME/.local/bin/cligate"
+
+  # Windows 는 지원 대상이 아니다. 어떻게 실패하는지 기록하려고 돌리므로 실패해도 작업은 계속한다
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: 설치
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          python --version
+          python -m pip install -q pipx
+          python -m pipx install git+https://github.com/brain305/cligate.git
+          "::notice title=pipx 설치 종료::$LASTEXITCODE"
+          python -m pip install -q git+https://github.com/brain305/cligate.git
+          "::notice title=pip 설치 종료::$LASTEXITCODE"
+
+      - name: PowerShell 에서 실행
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          mkdir work; cd work
+          git init -q -b main; git config user.email a@b; git config user.name a
+          "v" | Out-File a; git add a; git commit -qm init; "u" | Out-File u
+          "rm u`n`nexit 4`n" | python -m cligate.cli 2>&1 | Out-File out.txt
+          "::notice title=모듈 직접 실행 종료 (pwsh)::$LASTEXITCODE"
+          $text = (Get-Content out.txt -Raw) -replace "`r?`n", ' / '
+          "::notice title=cli 모듈 출력::$($text.Substring([Math]::Max(0, $text.Length - 200)))"
+          $bin = Get-Command cligate -ErrorAction SilentlyContinue
+          "::notice title=cligate 위치::$($bin.Source)"
+          "rm u`n`nexit 4`n" | cligate 2>&1 | Out-File out2.txt
+          "::notice title=cligate 종료 (pwsh)::$LASTEXITCODE"
+          $text = (Get-Content out2.txt -Raw) -replace "`r?`n", ' / '
+          "::notice title=cligate 출력::$($text.Substring([Math]::Max(0, $text.Length - 300)))"
+          "::notice title=파일 u 남음::$(Test-Path u)"
+
+      - name: Git Bash 에서 실행
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo "::notice title=Git Bash SHELL::${SHELL:-없음} sh=$(command -v sh)"
+          mkdir -p bwork; cd bwork
+          git init -q -b main; git config user.email a@b; git config user.name a
+          echo v > a; git add a; git commit -qm init; echo u > u
+          set +e
+          printf 'rm u\n\nexit 4\n' | cligate > out.txt 2>&1
+          code=$?
+          set -e
+          echo "::notice title=cligate 종료 (Git Bash)::$code"
+          echo "::notice title=cligate 출력 (Git Bash)::$(tail -c 300 out.txt | tr '\r\n' '  ')"
+          echo "::notice title=파일 u 남음::$(test -e u && echo 예 || echo 아니오)"
+
+      - name: 내부 기능 하나씩
+        continue-on-error: true
+        shell: python
+        run: |
+          import os, subprocess, tempfile
+          def check(name, fn):
+              try:
+                  print(f"::notice title={name}::{str(fn())[:220]!r}")
+              except BaseException as e:
+                  print(f"::notice title={name} 실패::{type(e).__name__}: {str(e)[:200]}")
+          check("os.killpg 있음", lambda: hasattr(os, "killpg"))
+          from cligate import gate, parse, runner, shell, state
+          work = tempfile.mkdtemp()
+          os.chdir(work)
+          subprocess.run(["git", "init", "-q", "-b", "main"])
+          open("u", "w").close()
+          check("shell.path", shell.path)
+          check("문법 검사", lambda: parse.syntax_error("echo hi"))
+          check("파싱", lambda: parse.parse("rm u && ls"))
+          check("상태 조회", lambda: state.repo_root(work))
+          check("rm 판정", lambda: [str(f) for f in gate.check(parse.parse("rm u")).findings])
+          check("rm -rf / 판정", lambda: gate.check(parse.parse("rm -rf /")).level)
+          check("Remove-Item 판정", lambda: gate.check(parse.parse("Remove-Item -Recurse -Force C:\\")).level)
+          check("실행", lambda: runner.run("echo hi"))
+
+      - name: WSL 사용 가능 여부
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $out = (wsl --status 2>&1 | Out-String) -replace "`0", '' -replace "`r?`n", ' / '
+          "::notice title=wsl status::$($out.Substring(0, [Math]::Min(220, $out.Length)))"
+          $list = (wsl --list --verbose 2>&1 | Out-String) -replace "`0", '' -replace "`r?`n", ' / '
+          "::notice title=wsl list::$($list.Substring(0, [Math]::Min(220, $list.Length)))"
