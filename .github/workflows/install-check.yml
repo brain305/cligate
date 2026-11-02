@@ -179,8 +179,19 @@ jobs:
           mkdir -p w && cd w && git init -q -b main && echo v>a && git add a && git commit -qm i && echo u>u
           printf 'rm a\nrm u\n\nexit 4\n' | cligate >out.txt 2>&1; echo "::notice title=cligate 종료::$?"
           echo "::notice title=판정 출력::$(sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' out.txt | grep -c '\[L[12]\]') 줄, a=$(test -e a && echo 남음 || echo 지워짐) u=$(test -e u && echo 남음 || echo 지워짐)"
-          PY=$HOME/.local/share/pipx/venvs/cligate/bin/python
-          $PY - <<'CODE'
+          INNER
+          URL="$URL" su demo -c 'bash /tmp/in.sh'
+          '@
+          $url = "git+https://github.com/${{ github.repository }}.git@${{ github.sha }}"
+          $script = ($script -replace "`r`n", "`n") -replace '(?m)^          ', ''
+          [IO.File]::WriteAllText("C:\wsl-check.sh", $script)
+          wsl -d Ubuntu -u root -- env "URL=$url" bash /mnt/c/wsl-check.sh
+
+      - name: WSL 안에서 /mnt/c 판정, 속도, 터미널 확인
+        shell: pwsh
+        run: |
+          $env:WSL_UTF8 = "1"
+          $code = @'
           import os, pty, select, subprocess, tempfile, time
           from cligate import complete, gate, parse, state
           for line in ["rm -rf /mnt/c", "rm -rf /mnt/c/Users", "rm -rf /mnt/c/Windows", "rm -rf /"]:
@@ -230,11 +241,19 @@ jobs:
           os.write(fd, b"y\r")
           read(1)
           os.write(fd, b"exit\r")
-          CODE
-          INNER
-          URL="$URL" su demo -c 'bash /tmp/in.sh'
           '@
-          $url = "git+https://github.com/${{ github.repository }}.git@${{ github.sha }}"
-          $script = ($script -replace "`r`n", "`n") -replace '(?m)^          ', ''
-          [IO.File]::WriteAllText("C:\wsl-check.sh", $script)
-          wsl -d Ubuntu -u root -- env "URL=$url" bash /mnt/c/wsl-check.sh
+          $code = ($code -replace "`r`n", "`n") -replace '(?m)^          ', ''
+          [IO.File]::WriteAllText("C:\\wsl-more.py", $code)
+          $sh = @'
+          PY=$(ls -d $HOME/.local/share/pipx/venvs/cligate/bin/python $HOME/.local/pipx/venvs/cligate/bin/python 2>/dev/null | head -1)
+          echo "::notice title=가상환경 python::$PY"
+          $PY /mnt/c/wsl-more.py 2>/tmp/err
+          status=$?
+          echo "::notice title=추가 시험 종료::$status"
+          [ "$status" = 0 ] || echo "::notice title=오류::$(tail -c 300 /tmp/err | tr '\n' ' ')"
+          exit $status
+          '@
+          $sh = ($sh -replace "`r`n", "`n") -replace '(?m)^          ', ''
+          [IO.File]::WriteAllText("C:\\wsl-more.sh", $sh)
+          wsl -d Ubuntu -u root -- chmod -R a+rX /mnt/c/wsl-more.py /mnt/c/wsl-more.sh
+          wsl -d Ubuntu -u demo -- bash /mnt/c/wsl-more.sh
