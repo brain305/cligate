@@ -10,7 +10,7 @@ from prompt_toolkit.completion import CompleteEvent, Completer, Completion, Thre
 from prompt_toolkit.filters import completion_is_selected, has_completions
 from prompt_toolkit.key_binding import KeyBindings
 
-from . import gate, gitspec, learn, parse, shell, state
+from . import gate, gitspec, learn, parse, shell, state, statusline
 from .risk import L2
 
 IDLE_SECONDS = 0.5
@@ -145,6 +145,9 @@ def _plain(args):
 
 def _git_subcommands(word, cwd, curated):
     snap = state.snapshot(cwd)
+    remote = statusline.latest(cwd)
+    if snap and remote:  # 상태 줄이 원격에 직접 물어본 값이 추적 정보보다 새롭다
+        snap.ahead, snap.behind = remote.ahead, remote.behind
     up, down = _state_rules(snap)
     known = learn.rank([*gitspec.COMMANDS, *learn.frequent("git")], "git")
     # 표에 맞는 명령이 있으면 archimport 같이 거의 안 쓰는 명령은 자동 목록에 띄우지 않는다

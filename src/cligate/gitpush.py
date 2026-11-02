@@ -1,4 +1,4 @@
-from . import parse, risk, state
+from . import parse, risk, state, statusline
 from .risk import Finding, L1, L2, L3, R1, R2, R3, S2
 
 CONFIRM_WORD = "force"
@@ -27,7 +27,7 @@ def _check(args, cwd, offline):
     forced, deleting, positional = _read_push(parse.strip_redirects(args))
     deleting_spec = any(_is_delete(s) for s in positional[1:])
     if not (forced or deleting or deleting_spec or any(p.startswith("+") for p in positional)):
-        return []
+        return _plain_push(positional, cwd)
 
     if not deleting and any(o in args for o in ("--all", "--mirror", "--branches")):
         return [Finding(L3, f"git push: 여러 브랜치를 강제로 덮어씁니다\n{SAFER}", CONFIRM_WORD)]
@@ -67,6 +67,14 @@ def _check(args, cwd, offline):
     if overwrites:
         overwrites[-1].message += f"\n{SAFER}"
     return findings
+
+
+def _plain_push(positional, cwd):
+    """원격에 새 커밋이 있으면 평범한 push 는 거부된다. 상태 줄의 정보로 미리 알린다."""
+    status = statusline.latest(cwd)
+    if status is None or not status.behind or (positional[1:] and positional[1:] != [status.branch]):
+        return []
+    return [Finding(L1, f"git push: 원격에 새 커밋이 {status.behind}개 있어 거부될 수 있습니다\n    권장  git pull --rebase", CONFIRM_WORD)]
 
 
 def _is_delete(spec):

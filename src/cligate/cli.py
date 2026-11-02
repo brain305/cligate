@@ -1,7 +1,7 @@
 import sys
 
 from prompt_toolkit import PromptSession, prompt
-from . import APP_NAME, parse, builtin, complete, gate, learn, risk, runner, shell
+from . import APP_NAME, parse, builtin, complete, gate, learn, risk, runner, shell, statusline
 
 
 NOT_RUN = {126, 127}  # 셸이 명령을 찾거나 실행하지 못했다. 오타를 학습하지 않는다
@@ -16,11 +16,14 @@ def main():
     shell.start_loading()
     # 자동완성은 0.5초 멈췄을 때 IdleTrigger 가 연다. TAB 은 언제든 동작한다
     session = PromptSession(completer=complete.completer(), complete_while_typing=False,
-                            key_bindings=complete.key_bindings())
+                            key_bindings=complete.key_bindings(), refresh_interval=statusline.REDRAW_SECONDS)
+    monitor = statusline.Monitor()
+    monitor.on_change = session.app.invalidate
+    monitor.start()
     session.default_buffer.on_text_changed += complete.IdleTrigger()
     while True:
         try:
-            line = session.prompt(f"{APP_NAME} > ").strip()
+            line = session.prompt(lambda: monitor.prompt(APP_NAME)).strip()
             if not line:
                 continue
 
@@ -43,6 +46,7 @@ def main():
                 name, *args = commands[0]
                 builtin.BUILTINS[name](args)
                 learn.record(commands)
+                monitor.resume()  # cd 뒤에는 새 폴더의 상태를 보여준다
                 continue
 
             # 4. 위험 검사
@@ -62,7 +66,11 @@ def main():
 
 
             # 6. 실행 - 입력 내용을 쉘에 그대로 넣는 입력
-            code = runner.run(line)
+            monitor.pause()
+            try:
+                code = runner.run(line)
+            finally:
+                monitor.resume()
             if code not in NOT_RUN:
                 learn.record(commands)
         except EOFError:
