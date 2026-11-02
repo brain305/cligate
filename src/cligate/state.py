@@ -1,11 +1,14 @@
 import os
 import signal
 import subprocess
+from dataclasses import dataclass
+from functools import lru_cache
 
 TIMEOUT = 2  # 초. 넘기면 "확인 실패" 로 보고 사용자에게 묻는다
 NETWORK_TIMEOUT = 5
 COMMIT_FORMAT = "--format=%h  %s  (%an, %ar)"
 GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
+_options_cache = {}
 GIT_INTERNAL = "git 기록 자체"
 WHOLE_REPO = "저장소 전체, .git 포함"
 CRITICAL_REASONS = {GIT_INTERNAL, WHOLE_REPO}  # 커밋 기록까지 사라져 git 으로도 되살릴 수 없다
@@ -61,6 +64,140 @@ def _reason(code):
     if code == "!!":
         return "git이 무시하는 파일"
     return "커밋 안 한 변경"
+
+
+@dataclass
+class Snapshot:
+    """자동완성의 상태 규칙에 쓰는 저장소 상태. 원격은 마지막 fetch 기준이다."""
+    branch: str = None
+    upstream: bool = False
+    initial: bool = False
+    staged: bool = False
+    changed: bool = False
+    untracked: bool = False
+    conflicts: bool = False
+    detached: bool = False
+    rebasing: bool = False
+    ahead: int = 0
+    behind: int = 0
+
+
+def snapshot(cwd):
+    """저장소 상태를 읽는다. 저장소 밖이거나 확인하지 못하면 None."""
+    out = _git(["status", "--porcelain=v2", "--branch"], cwd)
+    if out is None:
+        return None
+    snap = Snapshot()
+    for line in out.splitlines():
+        if line == "# branch.head (detached)":
+            snap.detached = True
+        elif line.startswith("# branch.head "):
+            snap.branch = line.split(" ", 2)[2]
+        elif line == "# branch.oid (initial)":
+            snap.initial = True
+        elif line.startswith("# branch.upstream "):
+            snap.upstream = True
+        elif line.startswith("# branch.ab "):
+            ahead, behind = line.split()[2:4]
+            snap.ahead, snap.behind = int(ahead), abs(int(behind))
+        elif line.startswith("u "):
+            snap.conflicts = True
+            snap.changed = True
+        elif line.startswith(("1 ", "2 ")):
+            snap.changed = True
+            snap.staged = snap.staged or line[2] != "."
+        elif line.startswith("? "):
+            snap.untracked = True
+    paths = _git(["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply"], cwd) or ""
+    snap.rebasing = any(os.path.isdir(os.path.join(cwd, p)) for p in paths.splitlines())
+    return snap
+
+
+@lru_cache(maxsize=1)
+def git_commands():
+    out = _git(["--list-cmds=main"], os.getcwd())
+    return out.splitlines() if out else []
+
+
+def git_options(sub, cwd, negated=False):
+    """git 이 자동완성용으로 내장한 옵션 목록. -- 뒤에 오는 --no-* 는 negated 일 때만 함께 돌려준다."""
+    if sub not in _options_cache:
+        out = _git([sub, "--git-completion-helper"], cwd)
+        if not out:
+            return []  # 저장소 밖에서는 실패할 수 있어 저장하지 않는다
+        usual, _, others = out.partition(" -- ")
+        _options_cache[sub] = usual.split(), others.split()
+    usual, others = _options_cache[sub]
+    return usual + others if negated else usual
+
+
+def branches(cwd):
+    out = _git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], cwd)
+    return out.splitlines() if out else []
+
+
+def previous_branch(cwd):
+    """git switch - 가 돌아갈 브랜치. 직전이 브랜치가 아니었으면 None."""
+    name = _git(["rev-parse", "--abbrev-ref", "--verify", "-q", "@{-1}"], cwd)
+    name = name.strip() if name else None
+    return name if name in branches(cwd) else None
+
+
+def merged_branches(cwd, current):
+    """지금 브랜치에 병합되어 지워도 되는 브랜치들. 지금 브랜치와 main, master 는 뺀다."""
+    out = _git(["for-each-ref", "--merged=HEAD", "--format=%(refname:short)", "refs/heads"], cwd)
+    return [b for b in (out or "").splitlines() if b != current and b not in {"main", "master"}]
+
+
+def has_parent(cwd):
+    return _git(["rev-parse", "--verify", "-q", "HEAD~1^{commit}"], cwd) is not None
+
+
+def has_stash(cwd):
+    return _git(["rev-parse", "--verify", "-q", "refs/stash"], cwd) is not None
+
+
+def changed_paths(cwd, tracked_only=False):
+    """바뀐 파일을 현재 폴더 기준 경로로 돌려준다. 현재 폴더 바깥은 뺀다."""
+    top = repo_root(cwd)
+    args = ["status", "--porcelain", "-z", "--untracked-files=no" if tracked_only else "--untracked-files=all"]
+    status = _git(args, cwd)
+    if top is None or status is None:
+        return []
+    base = os.path.realpath(cwd)
+    names = (os.path.relpath(path, base) for path, _ in _read_status(status, top)[0])
+    return sorted(n for n in names if not n.startswith(".."))
+
+
+def remotes(cwd):
+    out = _git(["remote"], cwd)
+    return out.splitlines() if out else []
+
+
+def path_commands():
+    """PATH 에 있는 실행 파일 이름. PATH 가 그대로면 다시 읽지 않는다."""
+    return _scan_path(os.environ.get("PATH", ""))
+
+
+@lru_cache(maxsize=1)
+def _scan_path(path):
+    names = set()
+    for folder in path.split(os.pathsep):
+        try:
+            names.update(e.name for e in os.scandir(folder) if os.access(e.path, os.X_OK))
+        except OSError:
+            continue
+    return sorted(names)
+
+
+def unrecoverable_names(folder):
+    """폴더 바로 아래 이름 중 rm 하면 되살릴 수 없는 것. 저장소 밖이면 모두 같으므로 구별하지 않는다."""
+    top = repo_root(folder)
+    status = _git(["status", "--porcelain", "-z", "--untracked-files=all", "--ignored", "--", "."], folder)
+    if top is None or status is None:
+        return set()
+    base = os.path.realpath(folder)
+    return {os.path.relpath(path, base).split(os.sep)[0] for path, _ in _read_status(status, top)[0]}
 
 
 def git_subcommand(real, cwd):

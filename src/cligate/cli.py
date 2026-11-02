@@ -1,12 +1,18 @@
-from prompt_toolkit import prompt
-from . import APP_NAME, parse, builtin, gate, risk, runner
+from prompt_toolkit import PromptSession, prompt
+from . import APP_NAME, parse, builtin, complete, gate, learn, risk, runner
+
+
+NOT_RUN = {126, 127}  # 셸이 명령을 찾거나 실행하지 못했다. 오타를 학습하지 않는다
 
 
 def main():
+    # 자동완성은 0.5초 멈췄을 때 IdleTrigger 가 연다. TAB 은 언제든 동작한다
+    session = PromptSession(completer=complete.completer(), complete_while_typing=False,
+                            key_bindings=complete.key_bindings())
+    session.default_buffer.on_text_changed += complete.IdleTrigger()
     while True:
         try:
-            # input() 대신 prompt_toolkit 사용 — 나중에 자동완성/실시간 입력 처리를 붙이기 위해
-            line = prompt(f"{APP_NAME} > ").strip()
+            line = session.prompt(f"{APP_NAME} > ").strip()
             if not line:
                 continue
 
@@ -28,6 +34,7 @@ def main():
             if len(commands) == 1 and commands[0][0] in builtin.BUILTINS and not line.startswith("("):
                 name, *args = commands[0]
                 builtin.BUILTINS[name](args)
+                learn.record(commands)
                 continue
 
             # 4. 위험 검사
@@ -47,7 +54,9 @@ def main():
 
 
             # 6. 실행 - 입력 내용을 쉘에 그대로 넣는 입력
-            runner.run(line)
+            code = runner.run(line)
+            if code not in NOT_RUN:
+                learn.record(commands)
         except EOFError:
             break
         except KeyboardInterrupt:
