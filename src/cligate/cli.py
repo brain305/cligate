@@ -3,6 +3,7 @@ import sys
 from . import APP_NAME, parse, builtin, gate, learn, risk, runner, shell, statusline, ui
 
 
+REMOTE_WAIT_SECONDS = 1.5
 NOT_RUN = {126, 127}  # 셸이 명령을 찾거나 실행하지 못했다. 오타를 학습하지 않는다
 
 
@@ -71,7 +72,10 @@ def main():
             try:
                 code = runner.run(line)
             finally:
-                monitor.resume()
+                touched = gate.touches_remote(commands)
+                monitor.resume(refresh_remote=touched)
+            if touched:
+                monitor.wait_settled(REMOTE_WAIT_SECONDS)
             if code not in NOT_RUN:
                 learn.record(commands)
         except EOFError:

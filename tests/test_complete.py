@@ -416,8 +416,10 @@ class TestNoEndlessRepeat:
         assert "--no-tags" not in values("git push --", repo)
         assert "--no-tags" in values("git push --no-t", repo)
 
-    def test_pull_remote_then_branch(self, pushed):
-        assert values("git pull ", pushed) == ["origin"]
+    def test_pull_branches_then_remote(self, pushed):
+        names = values("git pull ", pushed)
+        assert "origin feat" in names
+        assert names[-1] == "origin"
         assert "feat" in values("git pull origin ", pushed)
 
     def test_fetch_remote(self, pushed):
@@ -492,6 +494,82 @@ class TestCurated:
 
     def test_rare_shell_command_found_when_typed(self, repo):
         assert "git" in curated("gi", repo)
+
+
+class TestPull:
+    def test_upstream_first_with_count_after_fetch(self, pushed):
+        git("fetch", "-q")
+        found = candidates("git pull ", str(pushed))
+        assert found[0].value == "origin feat"
+        assert found[0].meta == "↓2 받을 커밋"
+
+    def test_others_sorted_by_count_and_explain_merge(self, pushed):
+        git("fetch", "-q")
+        found = {c.value: c.meta for c in candidates("git pull ", str(pushed))}
+        assert found["origin mine"] == "↓1 받을 커밋 · 지금 브랜치에 합침"
+        assert found["origin main"] == "받을 커밋 없음"
+
+    def test_order(self, pushed):
+        git("fetch", "-q")
+        names = values("git pull ", pushed)
+        assert names.index("origin feat") < names.index("origin mine") < names.index("origin main") < names.index("origin")
+
+    def test_no_head_entry(self, pushed):
+        assert "origin HEAD" not in values("git pull ", pushed)
+
+    def test_uses_fresher_status_line(self, pushed, monkeypatch):
+        from cligate import statusline
+        m = statusline.Monitor()
+        monkeypatch.setattr(statusline, "_current", m)
+        assert candidates("git pull ", str(pushed))[0].meta == "받을 커밋 없음"  # 아직 fetch 하지 않았다
+        m.check_once()
+        assert candidates("git pull ", str(pushed))[0].meta == "↓2 받을 커밋"
+
+    def test_typing_branch_name_filters(self, pushed):
+        assert values("git pull fe", pushed) == ["origin feat"]
+
+    def test_typing_remote_name_filters(self, pushed):
+        names = values("git pull or", pushed)
+        assert names[0] == "origin feat"
+        assert names[-1] == "origin"
+
+    def test_second_position_shows_branch_only(self, pushed):
+        git("fetch", "-q")
+        found = candidates("git pull origin ", str(pushed))
+        assert found[0].value == "feat"
+        assert found[0].meta == "↓2 받을 커밋"
+
+    def test_finished_after_branch(self, pushed):
+        assert values("git pull origin feat ", pushed) == []
+
+    def test_with_rebase_option(self, pushed):
+        assert "origin feat" in values("git pull --rebase ", pushed)
+
+    def test_options_still_work(self, pushed):
+        assert "--rebase" in values("git pull --", pushed)
+
+    def test_completion_inserted_runs(self, pushed):
+        git("fetch", "-q")
+        value = candidates("git pull ", str(pushed))[0].value
+        git("pull", "-q", *value.split())
+        assert git("rev-list", "--count", "HEAD..origin/feat") == "0"
+
+    def test_no_remote(self, repo):
+        assert values("git pull ", repo) == []
+
+    def test_outside_repo(self, tmp_path):
+        assert values("git pull ", tmp_path) == []
+
+    def test_no_network(self, pushed, monkeypatch):
+        def fail(*args, **kwargs):
+            pytest.fail("네트워크 호출")
+        monkeypatch.setattr(state, "_git_network", fail)
+        candidates("git pull ", str(pushed))
+
+    def test_many_branches_are_capped(self, pushed):
+        for i in range(40):
+            git("update-ref", f"refs/remotes/origin/b{i}", "HEAD")
+        assert len(values("git pull origin ", pushed)) <= state.MAX_PULL_BRANCHES
 
 
 class TestStashMark:

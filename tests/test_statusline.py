@@ -206,6 +206,104 @@ class TestSharedWithJudgementAndCompletion:
         assert [c.value for c in complete.candidates("git pu", str(pushed), curated=True)][0] == "pull"
 
 
+class TestRefreshAfterRemoteCommands:
+    @pytest.fixture
+    def running(self, pushed):
+        git("fetch", "-q")
+        git("merge", "-q", "--ff-only", "origin/feat")
+        commit(pushed, "mine2")
+        m = Monitor(interval=3600)
+        m.start()
+        for _ in range(200):
+            if m.status:
+                break
+            time.sleep(0.05)
+        yield m
+        m.stop()
+        statusline._current = None
+
+    def test_push_clears_ahead_immediately(self, running):
+        assert running.status.kind == AHEAD
+        running.pause()
+        git("push", "-q")
+        running.resume(refresh_remote=True)
+        assert running.wait_settled(5)
+        assert running.status.kind == UP_TO_DATE
+
+    def test_without_refresh_old_value_stays(self, running):
+        running.pause()
+        git("push", "-q")
+        running.resume()
+        time.sleep(0.5)
+        assert running.status.kind == AHEAD  # 평범한 명령 뒤에는 네트워크를 쓰지 않는다
+
+    def test_pull_clears_behind_immediately(self, pushed):
+        m = Monitor(interval=3600)
+        m.start()
+        for _ in range(200):
+            if m.status:
+                break
+            time.sleep(0.05)
+        assert m.status.kind == BEHIND
+        m.pause()
+        git("pull", "-q")
+        m.resume(refresh_remote=True)
+        assert m.wait_settled(5)
+        kind = m.status.kind
+        m.stop()
+        statusline._current = None
+        assert kind == UP_TO_DATE
+
+    def test_never_shows_old_number_while_checking(self, running):
+        running.pause()
+        running._settled.clear()
+        line = text(running)
+        running._settled.set()
+        assert "원격 확인 중" in line
+        assert "push 대기" not in line
+        assert "원격 기준" not in line
+
+    def test_hanging_remote_does_not_hold_prompt(self, running, tmp_path, monkeypatch):
+        script = tmp_path / "hang"
+        script.write_text("#!/bin/sh\nsleep 30\n")
+        script.chmod(script.stat().st_mode | stat.S_IEXEC)
+        git("remote", "set-url", "origin", "ssh://nobody@example.invalid/x.git")
+        monkeypatch.setenv("GIT_SSH_COMMAND", str(script))
+        monkeypatch.setattr(state, "NETWORK_TIMEOUT", 1)
+        running.pause()
+        running.resume(refresh_remote=True)
+        started = time.time()
+        running.wait_settled(0.2)
+        assert time.time() - started < 1
+        assert "원격 확인 중" in text(running)
+        assert running.wait_settled(5)
+        assert running.status.kind == FAILED
+
+
+class TestTouchesRemote:
+    @pytest.mark.parametrize("line, expected", [
+        ("git push", True),
+        ("git pull --rebase", True),
+        ("git fetch", True),
+        ("git add . && git push", True),
+        ("sudo git push", True),
+        ("git -C . pull", True),
+        ("git status", False),
+        ("git commit -m x", False),
+        ("ls", False),
+        ("echo git push", False),
+    ])
+    def test_detects(self, repo, line, expected):
+        from cligate import gate, parse
+        assert gate.touches_remote(parse.parse(line)) is expected
+
+    def test_inside_alias(self, repo, monkeypatch):
+        from cligate import gate, parse, shell
+        monkeypatch.setattr(shell, "_loader", None)
+        monkeypatch.setattr(shell, "_aliases", {"gp": "git push"})
+        assert gate.touches_remote(parse.parse("gp")) is True
+
+
 class TestWorkCounts:
     def test_clean(self, pushed, monitor):
         git("checkout", "-q", "main")
@@ -376,6 +474,18 @@ class TestRealTerminal:
         assert "feat" in screen
         assert "pull 필요" in screen
         assert "cligate" in screen
+
+    def test_push_status_correct_right_after(self, pushed):
+        git("fetch", "-q", cwd=pushed)
+        git("merge", "-q", "--ff-only", "origin/feat", cwd=pushed)
+        commit(pushed, "mine2")
+        pid, fd = self._spawn(pushed)
+        assert "push 대기" in self._read(fd, 2.5)
+        os.write(fd, b"git push -q\r")
+        screen = self._read(fd, 2.5)
+        self._quit(pid, fd)
+        assert "최신" in screen
+        assert screen.rfind("push 대기") < screen.rfind("최신")
 
     def test_updates_after_pull(self, pushed):
         pid, fd = self._spawn(pushed)

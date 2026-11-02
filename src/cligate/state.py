@@ -6,6 +6,7 @@ from functools import lru_cache
 
 TIMEOUT = 2  # 초. 넘기면 "확인 실패" 로 보고 사용자에게 묻는다
 NETWORK_TIMEOUT = 5
+MAX_PULL_BRANCHES = 30
 COMMIT_FORMAT = "--format=%h  %s  (%an, %ar)"
 GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 _options_cache = {}
@@ -345,6 +346,20 @@ def ahead_behind(sha, cwd):
         return None
     ahead, behind = out.split()
     return int(ahead), int(behind)
+
+
+def pull_counts(remote, cwd):
+    """원격 브랜치별로 pull 하면 받을 커밋 수 {브랜치: 수}. 마지막 fetch 기준이며 네트워크를 쓰지 않는다."""
+    out = _git(["for-each-ref", "--count=" + str(MAX_PULL_BRANCHES), "--format=%(refname)", f"refs/remotes/{remote}"], cwd)
+    prefix = f"refs/remotes/{remote}/"
+    counts = {}
+    for ref in (out or "").splitlines():
+        if ref == f"{prefix}HEAD":
+            continue
+        count = _git(["rev-list", "--count", f"HEAD..{ref}"], cwd)
+        if count:
+            counts[ref[len(prefix):]] = int(count)
+    return counts
 
 
 def remote_tag(remote, tag, cwd):

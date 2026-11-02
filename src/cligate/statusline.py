@@ -71,6 +71,9 @@ class Monitor:
         self._paused = False
         self._stopped = False
         self._wake = threading.Event()
+        self._settled = threading.Event()
+        self._settled.set()
+        self._refresh_remote = False
         self._next_network = 0.0
         self._known = {}  # (폴더, 원격, 브랜치) 별 마지막 원격 커밋. 명령 뒤에는 네트워크 없이 다시 센다
 
@@ -88,9 +91,17 @@ class Monitor:
         """명령이 실행되는 동안에는 조사하지 않는다. git 명령과 겹치지 않게 하기 위해서이다."""
         self._paused = True
 
-    def resume(self):
+    def resume(self, refresh_remote=False):
+        """명령이 끝나면 다시 조사한다. push, pull 뒤에는 원격이 바뀌었으므로 바로 다시 묻는다."""
+        if refresh_remote:
+            self._settled.clear()
+            self._refresh_remote = True
         self._paused = False
         self._wake.set()
+
+    def wait_settled(self, timeout):
+        """바로 끝나면 다음 입력창부터 맞는 값을 보여준다. 느려도 입력은 막지 않는다."""
+        return self._settled.wait(timeout)
 
     def status_parts(self):
         """상태 줄의 문구. 저장소 밖이면 비어 있다."""
@@ -98,12 +109,14 @@ class Monitor:
         if status is None or status.branch is None:
             return []
         text, color = describe(status)
+        if not self._settled.is_set():
+            text, color = "원격 확인 중", "ansibrightblack"  # 옛 숫자를 보여주면 push 가 안 된 것처럼 보인다
         parts = [("bold", status.branch), ("", "  "), (f"fg:{color}", text)]
         if status.to_add:
             parts += [("fg:ansibrightblack", "  ·  "), ("fg:ansiyellow", f"✎{status.to_add} add 필요")]
         if status.staged:
             parts += [("fg:ansibrightblack", "  ·  "), ("fg:ansicyan", f"●{status.staged} 커밋 대기")]
-        if status.kind not in (NO_UPSTREAM, FAILED) and status.checked_at:
+        if status.kind not in (NO_UPSTREAM, FAILED) and status.checked_at and self._settled.is_set():
             parts.append(("fg:ansibrightblack", f"  ·  원격 기준 {_age(self.clock() - status.checked_at)}"))
         return parts
 
@@ -176,8 +189,14 @@ class Monitor:
                 cwd = None
             branch = state.current_branch(cwd) if cwd else None
             # 폴더나 브랜치가 바뀌었거나 때가 되면 원격에 묻고, 그 밖에는 있는 정보로 다시 센다
-            network = self.clock() >= self._next_network or (cwd, branch) != previous
+            refresh = self._refresh_remote
+            self._refresh_remote = False
+            network = refresh or self.clock() >= self._next_network or (cwd, branch) != previous
             previous = (cwd, branch)
             self.check_once(network)
             if network:
                 self._next_network = self.clock() + self._next_interval()
+            if not self._refresh_remote:
+                self._settled.set()
+                if self.on_change:
+                    self.on_change()

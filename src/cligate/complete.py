@@ -117,7 +117,9 @@ def _git_arguments(sub, args, word, cwd):
         return _paths("git", word, cwd)
     if sub == "fetch":
         return [Candidate(n) for n in state.remotes(cwd) if n.startswith(word)]
-    if sub in ("push", "pull"):
+    if sub == "pull":
+        return _pull_arguments(_plain(args), word, cwd)
+    if sub == "push":
         names = state.remotes(cwd) if not _plain(args) else state.branches(cwd)
         return [Candidate(n) for n in names if n.startswith(word)]
     if sub in BRANCH_COMMANDS:
@@ -130,6 +132,32 @@ def _git_arguments(sub, args, word, cwd):
         names = {c.value for c in changed}
         return changed + [c for c in paths if c.value not in names]
     return paths
+
+
+def _pull_arguments(plain, word, cwd):
+    """pull 할 브랜치를 받을 커밋 수와 함께 맨 위에 모은다. 원격 이름만 쓰는 후보는 그 아래에 둔다."""
+    remotes = state.remotes(cwd)
+    current = state.current_branch(cwd)
+    upstream = state.upstream(current, cwd) if current else None
+    found = []
+    for remote in plain[:1] or remotes:
+        for branch, count in state.pull_counts(remote, cwd).items():
+            is_upstream = upstream == (remote, branch)
+            remote_state = statusline.latest(cwd) if is_upstream else None
+            if remote_state:  # 상태 줄이 원격에 직접 물어본 값이 더 새롭다
+                count = remote_state.behind
+            value = branch if plain else f"{remote} {branch}"
+            if value.startswith(word) or branch.startswith(word):
+                found.append((not is_upstream, -count, value, _pull_meta(count, is_upstream)))
+    branches = [Candidate(value, meta) for *_, value, meta in sorted(found)]
+    return branches + ([] if plain else [Candidate(r, "원격 저장소") for r in remotes if r.startswith(word)])
+
+
+def _pull_meta(count, is_upstream):
+    if not count:
+        return "받을 커밋 없음"
+    # git pull origin main 은 main 으로 옮겨 가는 것이 아니라 지금 브랜치에 main 을 합친다
+    return f"↓{count} 받을 커밋" + ("" if is_upstream else " · 지금 브랜치에 합침")
 
 
 def _changed(sub, word, cwd):

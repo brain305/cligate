@@ -31,7 +31,7 @@ COMMANDS = {
                  options=(("--set-upstream", "추적 브랜치 설정"), ("--force", "원격을 덮어씀"),
                           ("--force-with-lease", "원격이 바뀌었으면 거부"), ("--dry-run", "보내지 않고 확인"),
                           ("--tags", "태그도 함께"))),
-    "pull": Spec("원격에서 가져오기 · [원격] [브랜치]", max_args=2,
+    "pull": Spec("원격에서 가져오기 · [원격] [브랜치]", space=True, max_args=2,
                  options=(("--rebase", "내 커밋을 위로 얹기"), ("--ff-only", "빨리감기만 허용"))),
     "switch": Spec("브랜치 이동 · <브랜치>", space=True, max_args=1,
                    first=(("-c", "새 브랜치 만들기 <이름>"),)),
