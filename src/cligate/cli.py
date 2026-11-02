@@ -1,3 +1,5 @@
+import sys
+
 from prompt_toolkit import PromptSession, prompt
 from . import APP_NAME, parse, builtin, complete, gate, learn, risk, runner, shell
 
@@ -6,6 +8,11 @@ NOT_RUN = {126, 127}  # 셸이 명령을 찾거나 실행하지 못했다. 오�
 
 
 def main():
+    if sys.platform == "win32":
+        # /bin/sh 로 실행하는 구조라 명령을 입력하는 순간 오류로 끝난다. 설치는 되므로 처음에 알린다
+        sys.stdout.reconfigure(errors="replace")
+        print(f"{APP_NAME}: Windows는 아직 지원하지 않습니다. WSL에서 실행해 주세요.")
+        sys.exit(1)
     shell.start_loading()
     # 자동완성은 0.5초 멈췄을 때 IdleTrigger 가 연다. TAB 은 언제든 동작한다
     session = PromptSession(completer=complete.completer(), complete_while_typing=False,

@@ -5,6 +5,8 @@ import sys
 import pytest
 from conftest import commit, git, write
 
+from cligate import cli
+
 
 def run(lines, cwd):
     return subprocess.run(
@@ -94,6 +96,14 @@ class TestShell:
     def test_syntax_error_does_not_run(self, repo):
         run(['touch made; echo "hello', "exit"], repo)
         assert not (repo / "made").exists()
+
+
+def test_windows_stops_with_guidance(monkeypatch, capsys):
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    with pytest.raises(SystemExit) as stopped:
+        cli.main()
+    assert stopped.value.code == 1
+    assert "WSL" in capsys.readouterr().out
 
 
 class TestOverwrite:
