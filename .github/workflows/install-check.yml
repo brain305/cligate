@@ -140,6 +140,8 @@ jobs:
           exit 0
 
   # 서버에서 WSL 을 쓸 수 있을 때만 의미가 있다. 설치 단계가 실패하면 확인하지 못한 것이다
+  # 이 서버는 WSL 1 이다. 터미널 시험은 입력이 터미널로 잡히지 않고, /mnt/c 는 git init 이 실패해
+  # 두 결과 모두 CliGate 의 동작을 보여주지 않는다. 믿을 수 있는 것은 설치와 판정 결과까지다
   wsl:
     runs-on: windows-latest
     timeout-minutes: 30

@@ -41,6 +41,15 @@ cligate > git push --force
 
 입력이 0.5초 멈추면 자동완성 목록이 뜹니다. TAB은 바로 열립니다. 위험한 후보는 맨 아래에 `⚠`로 표시됩니다.
 
+## 지원 환경
+
+| 환경 | 상태 | 확인한 범위 |
+| --- | --- | --- |
+| macOS | 지원 | GitHub Actions에서 설치, 판정, 터미널 동작 |
+| Ubuntu, RHEL 계열 | 지원 | GitHub Actions와 컨테이너에서 설치, 판정 |
+| WSL | 일부 확인 | WSL 1에서 설치와 판정만 확인. 터미널 화면, WSL 2, `/mnt/c` 속도는 미확인 |
+| Windows | 미지원 | 안내를 출력하고 종료합니다. WSL을 사용하세요 |
+
 ## 설치
 
 Python 3.9 이상, git이 필요합니다.
@@ -49,7 +58,7 @@ Python 3.9 이상, git이 필요합니다.
 
 ```bash
 brew install pipx && pipx ensurepath                 # macOS
-sudo apt install pipx && pipx ensurepath             # Ubuntu, Debian
+sudo apt install pipx && pipx ensurepath             # Ubuntu, Debian, WSL
 python3 -m ensurepip --user && python3 -m pip install --user pipx && python3 -m pipx ensurepath   # RHEL, Rocky
 ```
 
