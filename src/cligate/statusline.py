@@ -6,7 +6,7 @@
 import os
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from . import state
 
@@ -28,6 +28,8 @@ class Status:
     ahead: int = 0
     behind: int = 0
     checked_at: float = 0.0
+    to_add: int = 0
+    staged: int = 0
 
 
 def latest(cwd):
@@ -97,28 +99,36 @@ class Monitor:
             return []
         text, color = describe(status)
         parts = [("bold", status.branch), ("", "  "), (f"fg:{color}", text)]
+        if status.to_add:
+            parts += [("fg:ansibrightblack", "  ·  "), ("fg:ansiyellow", f"✎{status.to_add} add 필요")]
+        if status.staged:
+            parts += [("fg:ansibrightblack", "  ·  "), ("fg:ansicyan", f"●{status.staged} 커밋 대기")]
         if status.kind not in (NO_UPSTREAM, FAILED) and status.checked_at:
             parts.append(("fg:ansibrightblack", f"  ·  원격 기준 {_age(self.clock() - status.checked_at)}"))
         return parts
 
     def check_once(self, network=True):
         """상태를 한 번 조사해 저장한다."""
+        status = self._investigate(network)
+        if status:
+            to_add, staged = state.work_counts(status.cwd)
+            status = replace(status, to_add=to_add, staged=staged)
+        self._store(status)
+        return status
+
+    def _investigate(self, network):
         try:
             cwd = os.path.realpath(os.getcwd())
         except OSError:
-            self._store(None)
             return None
         branch = state.current_branch(cwd)
         if state.repo_root(cwd) is None:
-            self._store(None)
             return None
         if branch is None:
-            self._store(Status(cwd, "detached", NO_UPSTREAM))
-            return self.status
+            return Status(cwd, "detached", NO_UPSTREAM)
         upstream = state.upstream(branch, cwd)
         if upstream is None:
-            self._store(Status(cwd, branch, NO_UPSTREAM))
-            return self.status
+            return Status(cwd, branch, NO_UPSTREAM)
 
         remote, name = upstream
         key = (cwd, remote, name)
@@ -127,23 +137,19 @@ class Monitor:
             sha = state.remote_head(remote, name, cwd)
             if sha is None or (sha and not state.ensure_commit(remote, name, sha, cwd)):
                 self.failures += 1
-                self._store(Status(cwd, branch, FAILED))
-                return self.status
+                return Status(cwd, branch, FAILED)
             self.failures = 0
             self._known[key] = sha
             checked_at = self.clock()
         sha = self._known[key]
         if not sha:
-            self._store(Status(cwd, branch, REMOTE_GONE, checked_at=checked_at))
-            return self.status
+            return Status(cwd, branch, REMOTE_GONE, checked_at=checked_at)
         counts = state.ahead_behind(sha, cwd)
         if counts is None:
-            self._store(Status(cwd, branch, FAILED))
-            return self.status
+            return Status(cwd, branch, FAILED)
         ahead, behind = counts
         kind = DIVERGED if ahead and behind else BEHIND if behind else AHEAD if ahead else UP_TO_DATE
-        self._store(Status(cwd, branch, kind, ahead, behind, checked_at))
-        return self.status
+        return Status(cwd, branch, kind, ahead, behind, checked_at)
 
     def _next_interval(self):
         if not self.failures:
@@ -159,7 +165,8 @@ class Monitor:
     def _run(self):
         previous = None
         while not self._stopped:
-            self._wake.wait(max(0.0, self._next_network - self.clock()))
+            # 편집기처럼 CliGate 밖에서 고친 파일도 반영하도록 네트워크 없이 자주 다시 센다
+            self._wake.wait(min(REDRAW_SECONDS, max(0.0, self._next_network - self.clock())))
             self._wake.clear()
             if self._paused or self._stopped:
                 continue

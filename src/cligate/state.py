@@ -113,6 +113,21 @@ def snapshot(cwd):
     return snap
 
 
+def work_counts(cwd):
+    """(add 가 필요한 파일 수, 커밋을 기다리는 파일 수). 네트워크를 쓰지 않는다. 확인하지 못하면 (0, 0)."""
+    out = _git(["status", "--porcelain=v2"], cwd)
+    if out is None:
+        return 0, 0
+    to_add = staged = 0
+    for line in out.splitlines():
+        if line.startswith(("? ", "u ")):
+            to_add += 1
+        elif line.startswith(("1 ", "2 ")):
+            to_add += line[3] != "."
+            staged += line[2] != "."
+    return to_add, staged
+
+
 @lru_cache(maxsize=1)
 def git_commands():
     out = _git(["--list-cmds=main"], os.getcwd())

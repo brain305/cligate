@@ -116,6 +116,25 @@ class TestUnpulledPush:
         assert git("ls-remote", "origin", "refs/heads/feat", cwd=pushed) != before
 
 
+class TestPushingProtectedFromOtherBranch:
+    def test_cancel_keeps_remote(self, pushed):
+        git("checkout", "-q", "main", cwd=pushed)
+        commit(pushed, "hotfix")
+        git("checkout", "-q", "feat", cwd=pushed)
+        before = git("ls-remote", "origin", "refs/heads/main", cwd=pushed)
+        result = run(["git push origin main", "", "exit"], pushed)
+        assert "지금 브랜치는 feat" in result.stdout
+        assert git("ls-remote", "origin", "refs/heads/main", cwd=pushed) == before
+
+    def test_confirm_pushes(self, pushed):
+        git("checkout", "-q", "main", cwd=pushed)
+        commit(pushed, "hotfix")
+        git("checkout", "-q", "feat", cwd=pushed)
+        before = git("ls-remote", "origin", "refs/heads/main", cwd=pushed)
+        run(["git push origin main", "y", "exit"], pushed)
+        assert git("ls-remote", "origin", "refs/heads/main", cwd=pushed) != before
+
+
 class TestShell:
     def test_compound_cd_persists(self, repo):
         assert str((repo / "d").resolve()) in run(["cd d && cd .", "pwd", "exit"], repo).stdout

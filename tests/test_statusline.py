@@ -206,6 +206,102 @@ class TestSharedWithJudgementAndCompletion:
         assert [c.value for c in complete.candidates("git pu", str(pushed), curated=True)][0] == "pull"
 
 
+class TestWorkCounts:
+    def test_clean(self, pushed, monitor):
+        git("checkout", "-q", "main")
+        status = monitor.check_once()
+        assert (status.to_add, status.staged) == (0, 0)
+
+    def test_modified_and_untracked_need_add(self, pushed, monitor):
+        write(pushed / "init", "changed\n")
+        write(pushed / "new", "x\n")
+        status = monitor.check_once()
+        assert (status.to_add, status.staged) == (2, 0)
+        assert "✎2 add 필요" in text(monitor)
+
+    def test_staged_waits_for_commit(self, pushed, monitor):
+        write(pushed / "new", "x\n")
+        git("add", "new")
+        status = monitor.check_once()
+        assert (status.to_add, status.staged) == (0, 1)
+        assert "●1 커밋 대기" in text(monitor)
+
+    def test_staged_then_modified_counts_both(self, pushed, monitor):
+        write(pushed / "new", "x\n")
+        git("add", "new")
+        write(pushed / "new", "y\n")
+        status = monitor.check_once()
+        assert (status.to_add, status.staged) == (1, 1)
+
+    def test_ignored_not_counted(self, repo, monitor):
+        write(repo / "x.tmp", "x\n")
+        assert monitor.check_once().to_add == 0
+
+    def test_deleted_needs_add(self, pushed, monitor):
+        (pushed / "init").unlink()
+        assert monitor.check_once().to_add == 1
+
+    def test_conflict_needs_add(self, repo, monitor):
+        git("checkout", "-q", "-b", "side")
+        write(repo / "a", "side\n")
+        git("commit", "-qam", "side")
+        git("checkout", "-q", "main")
+        write(repo / "a", "main\n")
+        git("commit", "-qam", "main")
+        subprocess.run(["git", "merge", "side"], capture_output=True)
+        assert monitor.check_once().to_add == 1
+
+    def test_beside_pull_needed(self, pushed, monitor):
+        write(pushed / "new", "x\n")
+        monitor.check_once()
+        line = text(monitor)
+        assert line.index("pull 필요") < line.index("add 필요") < line.index("원격 기준")
+
+    def test_shown_without_remote(self, repo, monitor):
+        write(repo / "new", "x\n")
+        monitor.check_once()
+        assert "원격 브랜치 없음" in text(monitor)
+        assert "✎1 add 필요" in text(monitor)
+
+    def test_shown_when_remote_fails(self, pushed, monitor):
+        git("remote", "set-url", "origin", "/nosuch/remote.git")
+        write(pushed / "new", "x\n")
+        monitor.check_once()
+        assert "✎1 add 필요" in text(monitor)
+
+    def test_local_recount_uses_no_network(self, pushed, monitor, monkeypatch):
+        monitor.check_once()
+
+        def fail(*args, **kwargs):
+            pytest.fail("네트워크 호출")
+        monkeypatch.setattr(state, "_git_network", fail)
+        write(pushed / "new", "x\n")
+        assert monitor.check_once(network=False).to_add == 1
+
+    def test_counting_changes_nothing(self, pushed, monitor):
+        write(pushed / "new", "x\n")
+        before = git("status", "--porcelain")
+        monitor.check_once()
+        assert git("status", "--porcelain") == before
+
+    def test_outside_changes_reach_screen(self, pushed, monkeypatch):
+        monkeypatch.setattr(statusline, "REDRAW_SECONDS", 0.1)
+        m = Monitor()
+        m.start()
+        for _ in range(100):
+            if m.status:
+                break
+            time.sleep(0.05)
+        write(pushed / "new", "x\n")
+        for _ in range(100):
+            if m.status.to_add:
+                break
+            time.sleep(0.05)
+        m.stop()
+        statusline._current = None
+        assert m.status.to_add == 1
+
+
 class TestCommitNotice:
     def test_notifies_when_behind(self, pushed, monitor):
         monitor.check_once()

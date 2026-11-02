@@ -38,7 +38,6 @@ def test_force_push_shows_commits_that_disappear(pushed, line):
 @pytest.mark.parametrize("line", [
     "git push --force-with-lease",
     "git push --force-with-lease=feat",
-    "git push origin main",
     "git push --dry-run",
     "git push -n",
     "git push --tags",
@@ -122,7 +121,6 @@ class TestUnpulled:
     def test_other_branch_judged_by_its_own_commits(self, pushed):
         git("branch", "-f", "behind-main", "main")
         git("config", "branch.behind-main.remote", "origin")
-        assert level("git push origin main") == L0
         assert level("git push origin feat") == L2
 
     def test_preview_uses_no_network(self, pushed, monkeypatch):
@@ -165,6 +163,72 @@ def test_force_push_ahead_only_loses_nothing(pushed):
     commit(pushed, "local")
     assert level("git push -f") == L1
     assert "사라지는 커밋은 없습니다" in messages("git push -f")
+
+
+class TestPushingOtherBranch:
+    def test_protected_asks(self, pushed):
+        assert level("git push origin main") == L2
+        text = messages("git push origin main")
+        assert "지금 브랜치는 feat 인데 main 를 올립니다" in text
+
+    @pytest.mark.parametrize("line", ["git push origin master"])
+    def test_master_is_protected_too(self, pushed, line):
+        git("branch", "master", "main")
+        assert level(line) == L2
+
+    def test_other_branch_notifies(self, pushed):
+        assert level("git push origin mine") == L1
+        assert "지금 브랜치는 feat" in messages("git push origin mine")
+
+    def test_current_branch_into_protected_asks(self, pushed):
+        git("fetch", "-q")
+        git("reset", "-q", "--hard", "origin/feat")
+        assert level("git push origin HEAD:main") == L2
+        assert "feat 를 원격 main 로" in messages("git push origin HEAD:main")
+
+    def test_current_branch_into_other_name_notifies(self, pushed):
+        git("fetch", "-q")
+        git("reset", "-q", "--hard", "origin/feat")
+        assert level("git push origin feat:elsewhere") == L1
+
+    def test_on_main_pushing_main_is_quiet(self, pushed):
+        git("checkout", "-q", "main")
+        assert level("git push origin main") == L0
+        assert level("git push") == L0
+
+    def test_current_branch_is_quiet(self, pushed):
+        git("fetch", "-q")
+        git("reset", "-q", "--hard", "origin/feat")
+        assert level("git push origin feat") == L0
+        assert level("git push") == L0
+
+    def test_tag_is_quiet(self, pushed):
+        git("fetch", "-q")
+        git("reset", "-q", "--hard", "origin/feat")
+        git("tag", "v1")
+        assert level("git push origin v1") == L0
+
+    def test_unknown_name_lets_git_explain(self, pushed):
+        git("fetch", "-q")
+        git("reset", "-q", "--hard", "origin/feat")
+        assert level("git push origin nosuch") == L0
+
+    def test_detached_is_quiet(self, pushed):
+        git("checkout", "-q", "--detach", "main")
+        assert level("git push origin main") == L0
+
+    def test_dry_run_is_quiet(self, pushed):
+        assert level("git push -n origin main") == L0
+
+    def test_preview_is_quiet(self, pushed):
+        from cligate import gate
+        assert gate.preview("git push origin main").level == L0
+
+    def test_highest_with_unpulled(self, pushed):
+        verdict = judge("git push origin mine feat")
+        assert verdict.level == L2
+        assert "받지 않은 커밋" in messages("git push origin mine feat")
+        assert "지금 브랜치는 feat" in messages("git push origin mine feat")
 
 
 class TestProtectedBranch:

@@ -89,8 +89,19 @@ def _plain_push(args, positional, cwd, offline):
         src = current if src in ("HEAD", "@") else src
         dst = (dst or src or "").removeprefix("refs/heads/")
         if src and dst:
+            if positional[1:]:
+                findings.extend(_other_branch(current, src, dst, cwd))
             findings.extend(_unpulled(remote, src, dst, cwd))
     return findings
+
+
+def _other_branch(current, src, dst, cwd):
+    """지금 브랜치가 아닌 곳을 올리는 실수를 알린다. git push origin main 은 어느 브랜치에서든 main 을 올린다."""
+    if current is None or (src == current and dst == current) or not state.is_commit(f"refs/heads/{src}", cwd):
+        return []  # 태그는 브랜치와 상관이 없다
+    what = f"{src} 를 원격 {dst} 로" if src != dst else f"{src} 를"
+    level = L2 if dst in PROTECTED else L1
+    return [Finding(level, f"git push: 지금 브랜치는 {current} 인데 {what} 올립니다", CONFIRM_WORD)]
 
 
 def _unpulled(remote, src, dst, cwd):
