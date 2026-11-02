@@ -153,6 +153,68 @@ def test_many_untracked_files_need_word_for_clean(repo):
     assert level("git clean -f") == L3
 
 
+class TestAddDotInSubfolder:
+    @pytest.fixture
+    def nested(self, repo, monkeypatch):
+        write(repo / "notes.txt", "x\n")
+        write(repo / "d" / "x", "changed\n")
+        monkeypatch.chdir(repo / "d")
+        return repo
+
+    def test_notifies_what_stays_outside(self, nested):
+        assert level("git add .") == L1
+        text = messages("git add .")
+        assert "지금 폴더(d) 아래만" in text
+        assert "바깥에 1개가" in text
+        assert "../notes.txt" in text
+        assert "git add -A" in text
+
+    def test_inside_files_are_not_listed(self, nested):
+        assert "    x" not in messages("git add .")
+
+    def test_does_not_block(self, nested):
+        assert judge("git add .").word is None
+
+    @pytest.mark.parametrize("line", ["git add -A", "git add --all", "git add x", "git add -n .", "git status"])
+    def test_other_forms_are_quiet(self, nested, line):
+        assert level(line) == L0
+
+    def test_at_repo_root_is_quiet(self, repo):
+        write(repo / "notes.txt", "x\n")
+        assert level("git add .") == L0
+
+    def test_nothing_outside_is_quiet(self, repo, monkeypatch):
+        write(repo / "d" / "x", "changed\n")
+        monkeypatch.chdir(repo / "d")
+        assert level("git add .") == L0
+
+    def test_staged_outside_does_not_count(self, repo, monkeypatch):
+        write(repo / "notes.txt", "x\n")
+        git("add", "notes.txt")
+        monkeypatch.chdir(repo / "d")
+        assert level("git add .") == L0
+
+    def test_modified_outside_counts(self, repo, monkeypatch):
+        write(repo / "a", "changed\n")
+        monkeypatch.chdir(repo / "d")
+        assert "../a" in messages("git add .")
+
+    def test_after_cd_in_same_line(self, repo):
+        write(repo / "notes.txt", "x\n")
+        assert level("cd d && git add .") == L1
+
+    def test_many_are_cut(self, repo, monkeypatch):
+        for i in range(20):
+            write(repo / f"f{i}", "x\n")
+        monkeypatch.chdir(repo / "d")
+        assert "외 12개" in messages("git add .")
+
+    def test_judging_adds_nothing(self, nested):
+        before = git("status", "--porcelain")
+        judge("git add .")
+        assert git("status", "--porcelain") == before
+
+
 class TestSwitchForce:
     @pytest.mark.parametrize("line", ["git switch -f side", "git switch --force side", "git switch --discard-changes side", "git switch -fc new"])
     def test_loses_changes(self, repo, line):

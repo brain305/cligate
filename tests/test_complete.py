@@ -49,10 +49,10 @@ class TestGitSubcommands:
         names = values("git ", repo)
         assert names[-3:] == ["add", "commit", "stash"]
 
-    def test_dirty_repo_raises_commit_and_lowers_merge(self, repo):
+    def test_modified_file_raises_add_and_lowers_merge(self, repo):
         write(repo / "a", "changed\n")
         names = values("git ", repo)
-        assert names[:2] == ["commit", "stash"]
+        assert names[:2] == ["add", "stash"]
         assert names[-1] == "merge"
 
     def test_real_commands_from_git(self, repo):
@@ -296,9 +296,9 @@ class TestRealValues:
     def test_no_remote_no_full_form(self, repo):
         assert values("git pu", repo) == ["push", "pull"]
 
-    def test_nothing_before_typing(self, pushed):
-        git("checkout", "-q", "-b", "fresh")
-        assert values("git ", pushed)[0] == "status"
+    def test_merged_branch_not_listed_before_typing(self, repo):
+        git("branch", "done")
+        assert not [v for v in values("git ", repo) if v.startswith("branch -d")]
 
     def test_switch_previous_branch(self, repo):
         git("checkout", "-q", "-b", "side")
@@ -570,6 +570,105 @@ class TestPull:
         for i in range(40):
             git("update-ref", f"refs/remotes/origin/b{i}", "HEAD")
         assert len(values("git pull origin ", pushed)) <= state.MAX_PULL_BRANCHES
+
+
+class TestStatusDrivesOrder:
+    """상태 줄에 뜬 알림이 git 목록의 맨 위가 된다. 순서는 받기, add, commit, push 이다."""
+
+    def first(self, cwd):
+        return values("git ", cwd)[:3]
+
+    @pytest.fixture
+    def synced(self, pushed):
+        git("checkout", "-q", "main")
+        return pushed
+
+    def test_only_push_waiting(self, synced):
+        commit(synced, "local")
+        assert self.first(synced)[0] == "push"
+
+    def test_only_pull_needed(self, pushed):
+        git("fetch", "-q")
+        assert self.first(pushed)[0] == "pull"
+        assert values("git ", pushed).index("push") > values("git ", pushed).index("log")
+
+    def test_only_add_needed(self, synced):
+        write(synced / "new", "x\n")
+        assert self.first(synced)[0] == "add"
+
+    def test_only_commit_waiting(self, synced):
+        write(synced / "new", "x\n")
+        git("add", "new")
+        assert self.first(synced)[:2] == ["commit", "stash"]
+
+    def test_add_then_commit(self, synced):
+        write(synced / "new", "x\n")
+        git("add", "new")
+        write(synced / "other", "x\n")
+        assert self.first(synced)[:2] == ["add", "commit"]
+
+    def test_add_commit_push_in_order(self, synced):
+        commit(synced, "local")
+        write(synced / "new", "x\n")
+        git("add", "new")
+        write(synced / "other", "x\n")
+        assert self.first(synced) == ["add", "commit", "push"]
+
+    def test_pull_comes_before_add(self, pushed):
+        git("fetch", "-q")
+        write(pushed / "new", "x\n")
+        assert self.first(pushed)[:2] == ["pull", "add"]
+
+    def test_diverged_rebase_first(self, pushed):
+        git("fetch", "-q")
+        commit(pushed, "local")
+        names = values("git ", pushed)
+        assert names[0] == "pull --rebase"
+        assert names[-1] == "add" or names.index("push") > names.index("log")
+
+    def test_clean_and_synced_keeps_base_order(self, synced):
+        assert self.first(synced)[0] == "status"
+
+    def test_unpublished_branch_raises_command_that_works(self, synced):
+        git("checkout", "-q", "-b", "fresh")
+        found = candidates("git ", str(synced))[0]
+        assert found.value == "push -u origin fresh"
+        assert found.meta == "upstream 설정"
+        git("push", "-q", "-u", "origin", "fresh")
+        assert git("ls-remote", "--heads", "origin", "fresh") != ""
+
+    def test_no_remote_does_not_raise_push(self, repo):
+        assert self.first(repo)[0] == "status"
+
+    def test_conflict_beats_everything(self, repo):
+        git("checkout", "-q", "-b", "side")
+        write(repo / "a", "side\n")
+        git("commit", "-qam", "side")
+        git("checkout", "-q", "main")
+        write(repo / "a", "main\n")
+        git("commit", "-qam", "main")
+        subprocess.run(["git", "merge", "side"], capture_output=True)
+        write(repo / "new", "x\n")
+        assert self.first(repo)[:2] == ["add", "mergetool"]
+
+    def test_status_line_value_is_used(self, pushed, monkeypatch):
+        from cligate import statusline
+        m = statusline.Monitor()
+        monkeypatch.setattr(statusline, "_current", m)
+        m.check_once()  # 아직 fetch 하지 않아 추적 정보로는 모른다
+        assert self.first(pushed)[0] == "pull"
+
+    def test_learning_does_not_outrank_status(self, synced):
+        from cligate import learn, parse
+        commit(synced, "local")
+        for _ in range(50):
+            learn.record(parse.parse("git log"))
+        assert self.first(synced)[0] == "push"
+
+    def test_typed_prefix_respected(self, synced):
+        commit(synced, "local")
+        assert values("git s", synced)[0] != "push"
+        assert values("git pu", synced)[0] == "push"
 
 
 class TestStashMark:

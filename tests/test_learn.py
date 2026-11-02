@@ -156,7 +156,7 @@ class TestSafetyStaysOnTop:
     def test_state_rules_beat_habits(self, repo):
         use("git log", 100)
         write(repo / "a", "changed\n")
-        assert auto("git ", repo)[:2] == ["commit", "stash"]
+        assert auto("git ", repo)[:2] == ["add", "stash"]
 
     def test_learning_does_not_change_judgement(self, repo):
         from cligate import gate
