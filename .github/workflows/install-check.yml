@@ -1,0 +1,263 @@
+# README 의 설치 순서를 깨끗한 환경에서 그대로 따라 해 본다. 개발자 컴퓨터를 쓰지 않는다.
+name: install-check
+
+on:
+  push:
+    branches: [ci/install-check]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, login: /bin/zsh, rc: .zshrc, install_pipx: "brew install pipx" }
+          - { os: ubuntu-24.04, login: /bin/bash, rc: .bashrc, install_pipx: "sudo apt-get update -qq && sudo apt-get install -y -qq pipx" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      SHELL: ${{ matrix.login }}
+    steps:
+      - name: 환경 정보
+        run: |
+          uname -a; whoami; python3 --version; git --version; echo "SHELL=$SHELL"
+          echo "미리 설치된 pipx: $(command -v pipx || echo 없음)"
+          echo "미리 설치된 cligate: $(command -v cligate || echo 없음)"
+          echo "::notice title=환경::$(uname -sm) $(whoami) python=$(python3 --version 2>&1) pipx=$(command -v pipx || echo 없음)"
+
+      - name: 서버 전용 pipx 설정 지우기
+        run: |
+          # GitHub 의 Ubuntu 서버는 pipx 경로가 /opt/pipx_bin 으로 미리 설정되어 있다. 사용자의 기본값으로 되돌린다
+          echo "PIPX_HOME=$HOME/.local/pipx" >> "$GITHUB_ENV"
+          echo "PIPX_BIN_DIR=$HOME/.local/bin" >> "$GITHUB_ENV"
+
+      - name: README 1단계 pipx 설치와 경로 등록
+        run: |
+          ${{ matrix.install_pipx }}
+          # 서버에는 ~/.local/bin 이 이미 경로에 있을 수 있어, 사용자 컴퓨터처럼 빼고 시험한다
+          export PATH="$(echo "$PATH" | tr ':' '\n' | grep -v '/.local/bin' | paste -sd: -)"
+          echo "::notice title=ensurepath 전 pipx::$(command -v pipx)"
+          pipx ensurepath | tee ensurepath.txt
+          echo "::notice title=ensurepath 결과::$(head -1 ensurepath.txt)"
+          echo "::notice title=${{ matrix.rc }}::$(grep -n 'local/bin' "$HOME/${{ matrix.rc }}" || echo 줄 없음)"
+
+      - name: README 2단계 CliGate 설치
+        run: pipx install git+https://github.com/${{ github.repository }}.git@${{ github.sha }}
+
+      - name: 새 터미널에서 cligate 찾기
+        run: |
+          # 실제 새 터미널처럼 물려받은 환경을 비우고 설정 파일만으로 찾는다
+          found=$(env -i HOME="$HOME" TERM=xterm PATH=/usr/bin:/bin ${{ matrix.login }} -ic 'command -v cligate' 2>/dev/null | tail -1)
+          echo "::notice title=새 터미널의 cligate::${found:-못 찾음}"
+          test -n "$found"
+
+      - name: 위험 판정 동작
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          work=$(mktemp -d); cd "$work"
+          git init -q -b main; git config user.email a@b; git config user.name a
+          echo v > a; git add a; git commit -qm init; echo u > u
+          # rm a 는 L1 이라 지워지고, rm u 는 L2 에서 취소하면 남고, 마지막 종료 코드는 그대로 나와야 한다
+          set +e
+          printf 'rm a\nrm u\n\nexit 4\n' | cligate > out.txt 2>&1
+          code=$?
+          set -e
+          cat out.txt
+          test "$code" = 4
+          test ! -e a
+          test -e u
+          grep -q '\[L1\]' out.txt
+          grep -q '\[L2\]' out.txt
+
+      - name: 실제 터미널에서 자동완성과 L3
+        shell: python3 {0}
+        run: |
+          import os, pty, select, subprocess, sys, tempfile, time
+          work = tempfile.mkdtemp()
+          for cmd in (["git", "init", "-q", "-b", "main"], ["git", "commit", "-q", "--allow-empty", "-m", "i",
+                      "--author", "a <a@b>"]):
+              subprocess.run(cmd, cwd=work, check=True,
+                             env=dict(os.environ, GIT_COMMITTER_NAME="a", GIT_COMMITTER_EMAIL="a@b"))
+          binary = os.path.expanduser("~/.local/bin/cligate")
+          pid, fd = pty.fork()
+          if pid == 0:
+              os.chdir(work)
+              os.environ.update(TERM="xterm-256color", PROMPT_TOOLKIT_NO_CPR="1")
+              os.execv(binary, [binary])
+          def read(seconds):
+              out, end = b"", time.time() + seconds
+              while time.time() < end:
+                  ready, _, _ = select.select([fd], [], [], 0.05)
+                  if ready:
+                      try:
+                          out += os.read(fd, 65536)
+                      except OSError:
+                          break
+              return out.decode("utf-8", "replace")
+          read(4)
+          os.write(fd, b"git pu")
+          screen = read(2)
+          print(repr(screen[-300:]))
+          assert "push" in screen and "pull" in screen, "자동완성 목록이 뜨지 않음"
+          os.write(fd, b"\x15")
+          read(1)
+          os.write(fd, b"rm -rf /\r")
+          gate = read(2)
+          print(repr(gate[-300:]))
+          assert "[L3]" in gate and "delete" in gate, "L3 확인이 뜨지 않음"
+          os.write(fd, b"y\r")
+          after = read(2)
+          assert "취소" in after, "y 로 취소되지 않음"
+          os.write(fd, b"exit\r")
+          read(1)
+
+      - name: 업데이트와 삭제
+        run: |
+          pipx upgrade cligate
+          pipx uninstall cligate
+          test ! -e "$HOME/.local/bin/cligate"
+
+  # Windows 는 지원하지 않는다. 설치한 뒤 안내를 띄우고 끝나는지 확인한다
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: 설치하고 안내 확인
+        shell: pwsh
+        run: |
+          python -m pip install -q "git+https://github.com/${{ github.repository }}.git@${{ github.sha }}"
+          $out = cligate 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          "::notice title=종료 코드::$code"
+          "::notice title=출력::$($out.Trim())"
+          if ($code -ne 1 -or $out -notmatch 'WSL') { exit 1 }
+          exit 0
+
+  # 서버에서 WSL 을 쓸 수 있을 때만 의미가 있다. 설치 단계가 실패하면 확인하지 못한 것이다
+  # 이 서버는 WSL 1 이다. 터미널 시험은 입력이 터미널로 잡히지 않고, /mnt/c 는 git init 이 실패해
+  # 두 결과 모두 CliGate 의 동작을 보여주지 않는다. 믿을 수 있는 것은 설치와 판정 결과까지다
+  wsl:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - name: WSL 에 Ubuntu 설치
+        shell: pwsh
+        run: |
+          $env:WSL_UTF8 = "1"
+          wsl --set-default-version 1
+          wsl --install -d Ubuntu --no-launch
+          "::notice title=설치 종료::$LASTEXITCODE"
+          $list = wsl --list --verbose | Out-String
+          "::notice title=배포판::$(($list -replace "`r?`n", ' / ').Trim())"
+          $name = wsl -d Ubuntu -u root -- uname -a 2>&1 | Out-String
+          "::notice title=uname::$name"
+          if (-not $name) { exit 1 }
+
+      - name: WSL 안에서 설치와 동작 확인
+        shell: pwsh
+        run: |
+          $env:WSL_UTF8 = "1"
+          $script = @'
+          set -u
+          exec </dev/null
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq >/dev/null 2>&1
+          apt-get install -y -qq --no-install-recommends pipx git python3 >/dev/null 2>&1
+          useradd -m -s /bin/bash demo 2>/dev/null
+          cat > /tmp/in.sh <<'INNER'
+          cd
+          git config --global user.email a@b; git config --global user.name a
+          pipx ensurepath >/dev/null 2>&1
+          pipx install "$URL" >/tmp/p.txt 2>&1; echo "::notice title=pipx 설치 종료::$?"
+          echo "::notice title=새 셸의 cligate::$(bash -ic 'command -v cligate' 2>/dev/null | tail -1)"
+          export PATH=$HOME/.local/bin:$PATH
+          mkdir -p w && cd w && git init -q -b main && echo v>a && git add a && git commit -qm i && echo u>u
+          printf 'rm a\nrm u\n\nexit 4\n' | cligate >out.txt 2>&1; echo "::notice title=cligate 종료::$?"
+          echo "::notice title=판정 출력::$(sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' out.txt | grep -c '\[L[12]\]') 줄, a=$(test -e a && echo 남음 || echo 지워짐) u=$(test -e u && echo 남음 || echo 지워짐)"
+          INNER
+          URL="$URL" su demo -c 'bash /tmp/in.sh'
+          '@
+          $url = "git+https://github.com/${{ github.repository }}.git@${{ github.sha }}"
+          $script = $script -replace "`r`n", "`n"
+          [IO.File]::WriteAllText("C:\wsl-check.sh", $script)
+          wsl -d Ubuntu -u root -- env "URL=$url" bash /mnt/c/wsl-check.sh
+
+      - name: WSL 안에서 /mnt/c 판정, 속도, 터미널 확인
+        shell: pwsh
+        run: |
+          $env:WSL_UTF8 = "1"
+          $code = @'
+          import os, pty, select, subprocess, tempfile, time
+          from cligate import complete, gate, parse, state
+          print("::notice title=/mnt/c 보임::", os.path.isdir("/mnt/c/Windows"))
+          for label, base in (("리눅스 폴더", tempfile.mkdtemp()), ("mnt-c 폴더", tempfile.mkdtemp(dir="/mnt/c/Users/Public"))):
+              os.chdir(base)
+              subprocess.run(["git", "init", "-q", "-b", "main"])
+              for i in range(200):
+                  open(f"f{i}.txt", "w").write("x")
+              subprocess.run(["git", "add", "-A"])
+              subprocess.run(["git", "commit", "-qm", "i"])
+              open("f0.txt", "w").write("changed")
+              times = []
+              for _ in range(3):
+                  started = time.monotonic()
+                  complete.candidates("git reset --", base, curated=True)
+                  times.append(round((time.monotonic() - started) * 1000))
+              r = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+              print(f"::notice title=git 상태 {label}::rc={r.returncode} {r.stderr[:110].strip()!r} 변경={len(r.stdout.splitlines())}")
+              print(f"::notice title=자동완성 시간 {label}::{times} ms 후보={[c.meta[:6] for c in complete.candidates('git reset --', base, curated=True)]}")
+          work = tempfile.mkdtemp()
+          subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work)
+          binary = os.path.expanduser("~/.local/bin/cligate")
+          pid, fd = pty.fork()
+          if pid == 0:
+              os.chdir(work)
+              os.environ.update(TERM="xterm-256color", PROMPT_TOOLKIT_NO_CPR="1")
+              os.execv(binary, [binary])
+          def read(seconds):
+              out, end = b"", time.time() + seconds
+              while time.time() < end:
+                  ready, _, _ = select.select([fd], [], [], 0.05)
+                  if ready:
+                      try:
+                          out += os.read(fd, 65536)
+                      except OSError:
+                          break
+              return out.decode("utf-8", "replace")
+          started = time.time()
+          boot = read(15)
+          print(f"::notice title=터미널 시작 화면::{boot[-160:]!r}")
+          os.write(fd, b"git pu")
+          screen = read(5)
+          print("::notice title=터미널 자동완성::", "push" in screen and "pull" in screen, repr(screen[-120:]))
+          os.write(fd, b"\x15")
+          read(1)
+          os.write(fd, b"rm -rf /mnt/c\r")
+          gate_screen = read(5)
+          print("::notice title=터미널 /mnt/c L3::", "[L3]" in gate_screen, repr(gate_screen[-120:]))
+          os.write(fd, b"y\r")
+          read(1)
+          os.write(fd, b"exit\r")
+          '@
+          $code = $code -replace "`r`n", "`n"
+          [IO.File]::WriteAllText("C:\\wsl-more.py", $code)
+          $sh = @'
+          PY=$(ls -d $HOME/.local/share/pipx/venvs/cligate/bin/python $HOME/.local/pipx/venvs/cligate/bin/python 2>/dev/null | head -1)
+          echo "::notice title=가상환경 python::$PY"
+          $PY /mnt/c/wsl-more.py 2>/tmp/err
+          status=$?
+          echo "::notice title=추가 시험 종료::$status"
+          [ "$status" = 0 ] || echo "::notice title=오류::$(tail -c 300 /tmp/err | tr '\n' ' ')"
+          exit $status
+          '@
+          $sh = $sh -replace "`r`n", "`n"
+          [IO.File]::WriteAllText("C:\\wsl-more.sh", $sh)
+          wsl -d Ubuntu -u root -- chmod -R a+rX /mnt/c/wsl-more.py /mnt/c/wsl-more.sh
+          wsl -d Ubuntu -u demo -- bash /mnt/c/wsl-more.sh

@@ -4,6 +4,8 @@ import re
 
 SYSTEM_DIRS = {"/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/opt", "/sbin", "/usr", "/var",
                "/Applications", "/Library", "/System", "/Users"}
+# WSL 에서 보이는 Windows 드라이브. rm 이 Windows 파일도 실제로 지운다
+WINDOWS_DRIVE = re.compile(r"/mnt/[a-z](/(users(/[^/]+)?|windows|program files( \(x86\))?|programdata))?", re.IGNORECASE)
 
 
 def fill_vars(word):
@@ -20,7 +22,8 @@ def is_critical(path):
     home = os.path.realpath(os.path.expanduser("~"))
     real = os.path.realpath(path)
     is_home_or_above = real == home or home.startswith(real.rstrip(os.sep) + os.sep)
-    return path in SYSTEM_DIRS or real in SYSTEM_DIRS or is_home_or_above
+    is_windows_dir = bool(WINDOWS_DRIVE.fullmatch(path) or WINDOWS_DRIVE.fullmatch(real))
+    return path in SYSTEM_DIRS or real in SYSTEM_DIRS or is_home_or_above or is_windows_dir
 
 
 def expand(words, cwd):

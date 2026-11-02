@@ -208,6 +208,36 @@ def test_missing_paths_under_critical_dirs_pass(repo, line):
     assert level(line) == L0
 
 
+@pytest.mark.parametrize("line", [
+    "rm -rf /mnt/c",
+    "rm -rf /mnt/c/",
+    "rm -rf /mnt/c/*",
+    "rm -rf /mnt/d",
+    "rm -rf /mnt/c/Users",
+    "rm -rf /mnt/c/users",
+    "rm -rf /mnt/c/Users/me",
+    "rm -rf /mnt/c/Users/me/*",
+    "rm -rf /mnt/c/Windows",
+    "rm -rf '/mnt/c/Program Files'",
+    "rm -rf '/mnt/c/Program Files (x86)'",
+    "rm -rf /mnt/c/ProgramData",
+    "sudo rm -rf /mnt/c/Users",
+])
+def test_windows_folders_from_wsl_need_word(repo, line):
+    verdict = judge(line)
+    assert verdict.level == L3
+    assert verdict.word == "delete"
+
+
+@pytest.mark.parametrize("line", [
+    "rm -rf /mnt/data",
+    "rm -rf /mnt/c/Users/me/project/old",
+    "rm -rf /mnt/c/temp",
+])
+def test_other_paths_under_mnt_are_not_critical(repo, line):
+    assert judge(line).level != L3
+
+
 def test_root_is_shown_as_root_from_anywhere(repo, monkeypatch):
     assert "    /  (" in messages("rm -rf /")
     monkeypatch.chdir("/")
