@@ -17,6 +17,8 @@ jobs:
         include:
           - { os: macos-latest, login: /bin/zsh, rc: .zshrc, install_pipx: "brew install pipx" }
           - { os: ubuntu-24.04, login: /bin/bash, rc: .bashrc, install_pipx: "sudo apt-get update -qq && sudo apt-get install -y -qq pipx" }
+          - { os: ubuntu-22.04, login: /bin/bash, rc: .bashrc, install_pipx: "sudo apt-get update -qq && sudo apt-get install -y -qq pipx" }
+          - { os: ubuntu-24.04-arm, login: /bin/bash, rc: .bashrc, install_pipx: "sudo apt-get update -qq && sudo apt-get install -y -qq pipx" }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     env:
@@ -120,6 +122,73 @@ jobs:
           pipx upgrade cligate
           pipx uninstall cligate
           test ! -e "$HOME/.local/bin/cligate"
+
+  # 전체 테스트를 운영체제와 Python 버전별로 돌린다. 결과는 로그인 없이 볼 수 있게 알림으로 남긴다
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, python: "3.13" }
+          - { os: macos-latest, python: "3.9" }
+          - { os: ubuntu-24.04, python: "3.9" }
+          - { os: ubuntu-24.04, python: "3.12" }
+          - { os: ubuntu-24.04, python: "3.13" }
+          - { os: ubuntu-24.04-arm, python: "3.12" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: zsh 설치
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
+      - name: 전체 테스트
+        shell: bash
+        run: |
+          python -m pip install -q -e . "pytest>=8"
+          set +e
+          python -m pytest -q -p no:cacheprovider 2>&1 | tee out.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          grep -E '^FAILED|^ERROR| passed| failed' out.txt | tail -9 | cut -c1-200 | sed 's/^/::notice title=pytest::/'
+          exit "$code"
+
+  # 다른 배포판의 기본 Python 과 일반 계정에서 돌린다
+  distros:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: "rockylinux:9", install: "dnf install -y -q python3 python3-pip git-core zsh shadow-utils procps-ng" }
+          - { image: "fedora:latest", install: "dnf install -y -q python3 python3-pip git-core zsh shadow-utils procps-ng" }
+          - { image: "debian:12", install: "apt-get update -qq && apt-get install -y -qq python3 python3-venv git zsh procps" }
+          - { image: "ubuntu:22.04", install: "apt-get update -qq && apt-get install -y -qq python3 python3-venv git zsh procps" }
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    timeout-minutes: 30
+    steps:
+      - name: 준비
+        run: ${{ matrix.install }}
+      - uses: actions/checkout@v4
+      - name: 전체 테스트 (일반 계정)
+        shell: bash
+        run: |
+          useradd -m tester
+          chown -R tester "$PWD"
+          cat > /tmp/run.sh <<'SCRIPT'
+          set +e
+          python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q -e . "pytest>=8"
+          /tmp/venv/bin/python --version
+          /tmp/venv/bin/python -m pytest -q -p no:cacheprovider 2>&1 | tee out.txt
+          code=${PIPESTATUS[0]}
+          grep -E '^FAILED|^ERROR| passed| failed' out.txt | tail -9 | cut -c1-200 | sed 's/^/::notice title=pytest::/'
+          echo "::notice title=python::$(/tmp/venv/bin/python --version)"
+          exit "$code"
+          SCRIPT
+          su tester -c "cd '$PWD' && bash /tmp/run.sh"
 
   # Windows 는 지원하지 않는다. 설치한 뒤 안내를 띄우고 끝나는지 확인한다
   windows:
