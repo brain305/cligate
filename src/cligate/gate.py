@@ -16,7 +16,15 @@ def is_dangerous(line):
     return bool(parts) and parts[0] in DANGEROUS
 
 
-def check(commands):
+def preview(line):
+    """입력 중인 줄의 등급을 미리 본다. 자동완성용이므로 네트워크를 쓰지 않고, 아직 덜 쓴 줄도 받는다."""
+    try:
+        return check(parse.parse(line), offline=True)
+    except ValueError:  # 따옴표를 아직 닫지 않은 줄
+        return Verdict()
+
+
+def check(commands, offline=False):
     """한 줄을 판정해 Verdict 를 돌려준다. 등급은 명령과 지금 상태의 조합으로 정한다."""
     findings = []
     cwd = os.getcwd()
@@ -29,17 +37,17 @@ def check(commands):
         elif name in DANGEROUS:
             findings.extend(_check_rm(real, wrappers, cwd))
         elif name == "git":
-            findings.extend(_check_git(real, cwd))
+            findings.extend(_check_git(real, cwd, offline))
         elif name == "find" and "-delete" in real:
             level = L3 if any(_is_critical(_resolve(w, cwd)) for w in _find_roots(real)) else L2
             findings.append(Finding(level, "find -delete: 찾은 파일을 삭제합니다. 되돌릴 수 없습니다"))
     return Verdict(list({f.message: f for f in findings}.values()))
 
 
-def _check_git(real, cwd):
+def _check_git(real, cwd, offline):
     sub, args, where = state.git_subcommand(real, cwd)
     if sub == "push":
-        return gitpush.check(args, where)
+        return gitpush.check(args, where, offline)
     return gitwork.check(sub, args, where)
 
 

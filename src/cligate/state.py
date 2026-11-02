@@ -143,6 +143,12 @@ def remote_head(remote, branch, cwd):
     return None if out is None else out.split("\t")[0].strip()
 
 
+def tracked_head(remote, branch, cwd):
+    """마지막 fetch 로 알고 있는 원격 브랜치의 커밋. 네트워크를 쓰지 않는다. 모르면 None."""
+    out = _git(["rev-parse", "--verify", "-q", f"refs/remotes/{remote}/{branch}^{{commit}}"], cwd)
+    return out.strip() if out else None
+
+
 def remote_tag(remote, tag, cwd):
     return bool(_git_network(["ls-remote", remote, f"refs/tags/{tag}"], cwd))
 
