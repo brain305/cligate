@@ -29,6 +29,12 @@ jobs:
           echo "미리 설치된 cligate: $(command -v cligate || echo 없음)"
           echo "::notice title=환경::$(uname -sm) $(whoami) python=$(python3 --version 2>&1) pipx=$(command -v pipx || echo 없음)"
 
+      - name: 서버 전용 pipx 설정 지우기
+        run: |
+          # GitHub 의 Ubuntu 서버는 pipx 경로가 /opt/pipx_bin 으로 미리 설정되어 있다. 사용자의 기본값으로 되돌린다
+          echo "PIPX_HOME=$HOME/.local/pipx" >> "$GITHUB_ENV"
+          echo "PIPX_BIN_DIR=$HOME/.local/bin" >> "$GITHUB_ENV"
+
       - name: README 1단계 pipx 설치와 경로 등록
         run: |
           ${{ matrix.install_pipx }}
