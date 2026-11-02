@@ -5,6 +5,7 @@ from .risk import Finding, L1, L2, L3, R2, R3, Verdict
 
 DANGEROUS = {"rm"}
 COPY_COMMANDS = {"mv", "cp"}
+REMOTE_COMMANDS = {"push", "pull", "fetch"}
 CRITICAL_DIR = "루트·홈·시스템 폴더"
 
 
@@ -43,6 +44,14 @@ def check(commands, offline=False):
             level = L3 if any(paths.is_critical(paths.resolve(w, cwd)) for w in _find_roots(real)) else L2
             findings.append(Finding(level, "find -delete: 찾은 파일을 삭제합니다. 되돌릴 수 없습니다"))
     return Verdict(list({f.message: f for f in findings}.values()))
+
+
+def touches_remote(commands):
+    """원격과 주고받는 git 명령이 있으면 True. 별칭 안에 있어도 찾는다."""
+    for real, _ in _walk(commands, shell.aliases(wait=False)):
+        if os.path.basename(real[0]) == "git" and state.git_subcommand(real, os.getcwd())[0] in REMOTE_COMMANDS:
+            return True
+    return False
 
 
 def _check_git(real, cwd, offline):

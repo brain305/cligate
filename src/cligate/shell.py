@@ -4,6 +4,7 @@
 읽으면 1~2초씩 걸리므로, 시작할 때 백그라운드에서 한 번만 읽어 저장해 둔다.
 """
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -43,7 +44,9 @@ def aliases(wait=True):
 
 def script(line, save_cwd):
     """실행할 스크립트. zsh 는 한 번에 읽은 줄의 별칭을 펼치지 않으므로 eval 을 거쳐 뒤늦게 읽게 한다."""
-    aliases()
+    if not set(re.split(r"[\s;&|()]+", line)) & aliases().keys():
+        # 별칭을 안 쓰면 eval 이 필요 없다. 쓰면 오류 문구 앞에 (eval):1: 이 붙는다
+        return f"trap {shlex.quote(save_cwd)} EXIT; {line}"
     lines = list(_definitions)
     if lines and os.path.basename(path()) == "bash":
         lines.insert(0, "shopt -s expand_aliases")  # bash 는 -c 에서 별칭이 기본으로 꺼져 있다

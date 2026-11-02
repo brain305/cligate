@@ -6,6 +6,7 @@ from functools import lru_cache
 
 TIMEOUT = 2  # 초. 넘기면 "확인 실패" 로 보고 사용자에게 묻는다
 NETWORK_TIMEOUT = 5
+MAX_PULL_BRANCHES = 30
 COMMIT_FORMAT = "--format=%h  %s  (%an, %ar)"
 GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 _options_cache = {}
@@ -111,6 +112,21 @@ def snapshot(cwd):
     paths = _git(["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply"], cwd) or ""
     snap.rebasing = any(os.path.isdir(os.path.join(cwd, p)) for p in paths.splitlines())
     return snap
+
+
+def work_counts(cwd):
+    """(add 가 필요한 파일 수, 커밋을 기다리는 파일 수). 네트워크를 쓰지 않는다. 확인하지 못하면 (0, 0)."""
+    out = _git(["status", "--porcelain=v2"], cwd)
+    if out is None:
+        return 0, 0
+    to_add = staged = 0
+    for line in out.splitlines():
+        if line.startswith(("? ", "u ")):
+            to_add += 1
+        elif line.startswith(("1 ", "2 ")):
+            to_add += line[3] != "."
+            staged += line[2] != "."
+    return to_add, staged
 
 
 @lru_cache(maxsize=1)
@@ -264,6 +280,11 @@ def stash_files(ref, cwd):
     return out.splitlines() if out else []
 
 
+def same_commit(ref, sha, cwd):
+    out = _git(["rev-parse", "--verify", "-q", f"{ref}^{{commit}}"], cwd)
+    return out is not None and out.strip() == sha
+
+
 def is_commit(ref, cwd):
     return _git(["rev-parse", "--verify", "-q", f"{ref}^{{commit}}"], cwd) is not None
 
@@ -309,13 +330,45 @@ def tracked_head(remote, branch, cwd):
     return out.strip() if out else None
 
 
+def upstream(branch, cwd):
+    """브랜치가 따라가는 (원격, 원격 브랜치). 없거나 로컬 브랜치를 따라가면 None."""
+    remote = _git(["config", "--get", f"branch.{branch}.remote"], cwd)
+    merge = _git(["config", "--get", f"branch.{branch}.merge"], cwd)
+    if not remote or not merge or remote.strip() == ".":
+        return None
+    return remote.strip(), merge.strip().removeprefix("refs/heads/")
+
+
+def ahead_behind(sha, cwd):
+    """(HEAD 에만 있는 커밋 수, sha 에만 있는 커밋 수). 확인하지 못하면 None."""
+    out = _git(["rev-list", "--left-right", "--count", f"HEAD...{sha}"], cwd)
+    if out is None:
+        return None
+    ahead, behind = out.split()
+    return int(ahead), int(behind)
+
+
+def pull_counts(remote, cwd):
+    """원격 브랜치별로 pull 하면 받을 커밋 수 {브랜치: 수}. 마지막 fetch 기준이며 네트워크를 쓰지 않는다."""
+    out = _git(["for-each-ref", "--count=" + str(MAX_PULL_BRANCHES), "--format=%(refname)", f"refs/remotes/{remote}"], cwd)
+    prefix = f"refs/remotes/{remote}/"
+    counts = {}
+    for ref in (out or "").splitlines():
+        if ref == f"{prefix}HEAD":
+            continue
+        count = _git(["rev-list", "--count", f"HEAD..{ref}"], cwd)
+        if count:
+            counts[ref[len(prefix):]] = int(count)
+    return counts
+
+
 def remote_tag(remote, tag, cwd):
     return bool(_git_network(["ls-remote", remote, f"refs/tags/{tag}"], cwd))
 
 
 def remote_only_commits(remote, branch, local, remote_sha, cwd):
     """강제 푸시로 사라질 커밋 설명 목록. 확인하지 못하면 None."""
-    if not _ensure_commit(remote, branch, remote_sha, cwd):
+    if not ensure_commit(remote, branch, remote_sha, cwd):
         return None
     if _git(["rev-parse", "--verify", "-q", f"{local}^{{commit}}"], cwd) is None:
         return []  # 보낼 것이 없으면 git push 가 스스로 실패한다
@@ -324,9 +377,17 @@ def remote_only_commits(remote, branch, local, remote_sha, cwd):
     return None if out is None else out.splitlines()
 
 
+def unpulled_commits(remote, branch, local, remote_sha, cwd):
+    """원격에는 있고 local 에는 없는 커밋. 하나라도 있으면 평범한 push 는 거부된다. 확인하지 못하면 빈 목록."""
+    if not ensure_commit(remote, branch, remote_sha, cwd) or not is_commit(local, cwd):
+        return []
+    out = _git(["log", COMMIT_FORMAT, f"{local}..{remote_sha}"], cwd)
+    return out.splitlines() if out else []
+
+
 def deleted_commits(remote, branch, remote_sha, cwd):
     """원격 브랜치를 지울 때 (어디에도 안 남는 커밋, 이 컴퓨터에만 남는 커밋) 을 돌려준다. 확인하지 못하면 None."""
-    if not _ensure_commit(remote, branch, remote_sha, cwd):
+    if not ensure_commit(remote, branch, remote_sha, cwd):
         return None
     # 지워질 브랜치 자신의 추적 정보는 남는 곳으로 치지 않는다.
     # --exclude 는 바로 뒤 옵션에만 적용되고, --remotes 앞에서는 refs/remotes/ 없이 써야 한다
@@ -338,12 +399,13 @@ def deleted_commits(remote, branch, remote_sha, cwd):
     return lost, [commit for commit in not_on_remote.splitlines() if commit not in lost]
 
 
-def _ensure_commit(remote, branch, sha, cwd):
+def ensure_commit(remote, branch, sha, cwd):
     if _has_commit(sha, cwd):
         return True
     # --refmap= 은 origin/main 을 갱신하지 않는다. 갱신하면 --force-with-lease 가
     # 아직 보지 못한 원격 변경을 본 것으로 착각해 보호 기능을 잃는다.
-    fetched = _git_network(["fetch", "--quiet", "--no-tags", "--refmap=", remote, f"refs/heads/{branch}"], cwd)
+    fetched = _git_network(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--refmap=", remote,
+                            f"refs/heads/{branch}"], cwd)
     return fetched is not None and _has_commit(sha, cwd)
 
 
@@ -352,7 +414,7 @@ def _has_commit(sha, cwd):
 
 
 def _git_network(args, cwd):
-    extra = {}
+    extra = {"GCM_INTERACTIVE": "never"}  # 로그인 창을 띄우지 않는다
     # 사용자가 ssh 를 직접 설정했다면 그 설정(다른 키 등)을 덮어쓰지 않는다
     if not {"GIT_SSH", "GIT_SSH_COMMAND"} & set(os.environ) and not _git(["config", "--get", "core.sshCommand"], cwd):
         extra["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o ConnectTimeout=3"  # 비밀번호를 묻지 않게

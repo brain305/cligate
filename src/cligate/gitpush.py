@@ -27,7 +27,7 @@ def _check(args, cwd, offline):
     forced, deleting, positional = _read_push(parse.strip_redirects(args))
     deleting_spec = any(_is_delete(s) for s in positional[1:])
     if not (forced or deleting or deleting_spec or any(p.startswith("+") for p in positional)):
-        return []
+        return _plain_push(args, positional, cwd, offline)
 
     if not deleting and any(o in args for o in ("--all", "--mirror", "--branches")):
         return [Finding(L3, f"git push: 여러 브랜치를 강제로 덮어씁니다\n{SAFER}", CONFIRM_WORD)]
@@ -67,6 +67,53 @@ def _check(args, cwd, offline):
     if overwrites:
         overwrites[-1].message += f"\n{SAFER}"
     return findings
+
+
+def _plain_push(args, positional, cwd, offline):
+    """받지 않은 커밋이 원격에 있으면 평범한 push 는 거부된다. 실행 전에 원격에 물어 보여주고 묻는다."""
+    # 입력 중에는 네트워크를 쓰지 않는다. --force-with-lease 는 거부되지 않으므로 해당하지 않는다
+    if offline or any(a.startswith(("--force-with-lease", "--dry-run", "--all", "--mirror", "--branches", "--tags", "--delete"))
+                      for a in args) or any(a.startswith("-") and not a.startswith("--") and "n" in a for a in args):
+        return []
+    if any("$" in p for p in positional):
+        return []
+    current = state.current_branch(cwd)
+    upstream = state.upstream(current, cwd) if current else None
+    remote = positional[0] if positional else (upstream[0] if upstream else None)
+    specs = positional[1:] or ([f"{current}:{upstream[1]}"] if upstream else [current] if current else [])
+    if remote is None:
+        return []  # 어디로 보낼지 모르면 git 이 알아서 안내한다
+    findings = []
+    for spec in specs:
+        src, _, dst = spec.partition(":")
+        src = current if src in ("HEAD", "@") else src
+        dst = (dst or src or "").removeprefix("refs/heads/")
+        if src and dst:
+            if positional[1:]:
+                findings.extend(_other_branch(current, src, dst, cwd))
+            findings.extend(_unpulled(remote, src, dst, cwd))
+    return findings
+
+
+def _other_branch(current, src, dst, cwd):
+    """지금 브랜치가 아닌 곳을 올리는 실수를 알린다. git push origin main 은 어느 브랜치에서든 main 을 올린다."""
+    if current is None or (src == current and dst == current) or not state.is_commit(f"refs/heads/{src}", cwd):
+        return []  # 태그는 브랜치와 상관이 없다
+    what = f"{src} 를 원격 {dst} 로" if src != dst else f"{src} 를"
+    level = L2 if dst in PROTECTED else L1
+    return [Finding(level, f"git push: 지금 브랜치는 {current} 인데 {what} 올립니다", CONFIRM_WORD)]
+
+
+def _unpulled(remote, src, dst, cwd):
+    remote_sha = state.remote_head(remote, dst, cwd)
+    if not remote_sha:
+        return []  # 새 브랜치이거나 확인하지 못했다. 거부 여부는 git 이 판단한다
+    commits = state.unpulled_commits(remote, dst, src, remote_sha, cwd)
+    if not commits:
+        return []
+    title = f"git push: {remote}/{dst} 에 아직 받지 않은 커밋 {len(commits)}개가 있습니다"
+    message = risk.list_commits(title, commits) + f"\n    이대로 올리면 거부됩니다\n    권장  git pull --rebase"
+    return [Finding(L2, message, CONFIRM_WORD)]
 
 
 def _is_delete(spec):
@@ -130,6 +177,8 @@ def _check_ref(remote, src, dst, cwd, offline):
     if commits:
         title = f"git push --force: {remote}/{dst} 의 커밋 {len(commits)}개가 사라집니다"
         return [risk.judge(R3, S2, risk.list_commits(title, commits), CONFIRM_WORD)]
+    if state.same_commit(src, remote_sha, cwd):
+        return [Finding(L1, f"git push --force: {remote}/{dst} 와 같아서 바뀌는 것이 없습니다", CONFIRM_WORD)]
     if protected:
         return [Finding(L3, f"git push --force: 보호 브랜치 {dst} 덮어쓰기", CONFIRM_WORD)]
     return [Finding(L1, f"git push --force: {remote}/{dst} 에서 사라지는 커밋은 없습니다", CONFIRM_WORD)]

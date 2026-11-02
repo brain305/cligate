@@ -44,6 +44,11 @@ git commit -qm "혼자 하던 작업"
 git push -q -u origin solo
 git checkout -q main
 
+# 올리지 않은 main 수정: 강제 푸시하면 보호 브랜치가 실제로 바뀐다
+echo '# 로컬에서 고침' >> README.md
+git add -A
+git commit -qm "main 에서 직접 고친 내용"
+
 git checkout -q -b feature/login
 echo 'def login(): pass' > src/login.py
 git add -A

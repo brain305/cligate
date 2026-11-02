@@ -4,7 +4,7 @@ ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim AS base
 # 슬림 이미지는 번역 파일을 빼고 설치하므로 그 설정을 지운다
 RUN sed -i '/usr.share.locale/d' /etc/dpkg/dpkg.cfg.d/* \
-    && apt-get update && apt-get install -y --no-install-recommends git zsh sudo vim-tiny locales \
+    && apt-get update && apt-get install -y --no-install-recommends git zsh sudo vim less locales \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i 's/^# *ko_KR.UTF-8/ko_KR.UTF-8/' /etc/locale.gen && locale-gen
 RUN useradd --create-home --shell /bin/zsh demo \
