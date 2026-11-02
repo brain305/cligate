@@ -9,7 +9,6 @@ description = "상태 인식 셸 프론트엔드 — 되돌릴 수 없는 명령
 requires-python = ">=3.9"         # 서버 도달 범위: RHEL 9, Ubuntu 22.04+
 dependencies = [
     "prompt_toolkit>=3.0.43",     # 입력 줄, 완성 메뉴, 터미널 제어
-    "PyYAML>=6.0",                # 규칙 파일
 ]
 
 [project.optional-dependencies]

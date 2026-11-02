@@ -1,6 +1,7 @@
 # CliGate 시험과 시연용 환경. 위험한 명령을 맥이나 실제 저장소가 아닌 곳에서 돌리기 위해 쓴다.
 # 코드는 이미지 안에 복사하고 폴더를 연결하지 않으므로, 컨테이너에는 맥의 파일이 보이지 않는다.
-FROM python:3.12-slim AS base
+ARG PYTHON_VERSION=3.12
+FROM python:${PYTHON_VERSION}-slim AS base
 # 슬림 이미지는 번역 파일을 빼고 설치하므로 그 설정을 지운다
 RUN sed -i '/usr.share.locale/d' /etc/dpkg/dpkg.cfg.d/* \
     && apt-get update && apt-get install -y --no-install-recommends git zsh sudo vim-tiny locales \
