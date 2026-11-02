@@ -27,18 +27,27 @@ jobs:
           uname -a; whoami; python3 --version; git --version; echo "SHELL=$SHELL"
           echo "미리 설치된 pipx: $(command -v pipx || echo 없음)"
           echo "미리 설치된 cligate: $(command -v cligate || echo 없음)"
+          echo "::notice title=환경::$(uname -sm) $(whoami) python=$(python3 --version 2>&1) pipx=$(command -v pipx || echo 없음)"
 
       - name: README 1단계 pipx 설치와 경로 등록
         run: |
           ${{ matrix.install_pipx }}
-          pipx ensurepath
-          grep -n "local/bin" "$HOME/${{ matrix.rc }}"
+          # 서버에는 ~/.local/bin 이 이미 경로에 있을 수 있어, 사용자 컴퓨터처럼 빼고 시험한다
+          export PATH="$(echo "$PATH" | tr ':' '\n' | grep -v '/.local/bin' | paste -sd: -)"
+          echo "::notice title=ensurepath 전 pipx::$(command -v pipx)"
+          pipx ensurepath | tee ensurepath.txt
+          echo "::notice title=ensurepath 결과::$(head -1 ensurepath.txt)"
+          echo "::notice title=${{ matrix.rc }}::$(grep -n 'local/bin' "$HOME/${{ matrix.rc }}" || echo 줄 없음)"
 
       - name: README 2단계 CliGate 설치
         run: pipx install git+https://github.com/brain305/cligate.git
 
       - name: 새 터미널에서 cligate 찾기
-        run: ${{ matrix.login }} -ic 'command -v cligate'
+        run: |
+          # 실제 새 터미널처럼 물려받은 환경을 비우고 설정 파일만으로 찾는다
+          found=$(env -i HOME="$HOME" TERM=xterm PATH=/usr/bin:/bin ${{ matrix.login }} -ic 'command -v cligate' 2>/dev/null | tail -1)
+          echo "::notice title=새 터미널의 cligate::${found:-못 찾음}"
+          test -n "$found"
 
       - name: 위험 판정 동작
         run: |
