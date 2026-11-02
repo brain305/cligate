@@ -1,5 +1,5 @@
 from prompt_toolkit import prompt
-from . import APP_NAME, parse, builtin, gate, runner
+from . import APP_NAME, parse, builtin, gate, risk, runner
 
 
 def main():
@@ -31,22 +31,20 @@ def main():
                 continue
 
             # 4. 위험 검사
-            if gate.unclear(commands):
-                print(f"{APP_NAME}: 실행 전에는 무슨 명령인지 알 수 없어 확인하지 못했습니다")
-            notices, warnings, word = gate.check(commands)
-            for n in notices:
-                print(n)
-            if warnings:
-                for w in warnings:
-                    print(f"{w}")
-                # y 는 습관적으로 누를 수 있어서, 가장 위험한 경우는 단어를 직접 치게 한다
-                if word:
-                    if prompt(f"진행하려면 {word} 입력: ").strip() != word:
-                        print("취소했습니다. 아무것도 실행하지 않았습니다")
-                        continue
-                elif prompt("실행할까요? (y/N) ").strip().lower() != "y":
-                    continue
+            verdict = gate.check(commands)
+            for finding in verdict.findings:
+                print(finding)
+
             # 5.확인
+            # y 는 습관적으로 누를 수 있어서, 가장 위험한 경우는 단어를 직접 치게 한다
+            if verdict.level == risk.L3:
+                if prompt(f"진행하려면 {verdict.word} 입력: ").strip() != verdict.word:
+                    print("취소했습니다. 아무것도 실행하지 않았습니다")
+                    continue
+            elif verdict.level == risk.L2:
+                if prompt("실행할까요? (y/N) ").strip().lower() != "y":
+                    continue
+
 
             # 6. 실행 - 입력 내용을 쉘에 그대로 넣는 입력
             runner.run(line)

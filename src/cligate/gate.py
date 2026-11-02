@@ -2,11 +2,10 @@ import glob
 import os
 import re
 
-from . import gitpush, parse, state
+from . import APP_NAME, gitpush, gitwork, parse, risk, state
+from .risk import Finding, L1, L2, L3, R2, R3, Verdict
 
 DANGEROUS = {"rm"}
-MAX_LISTED = 8
-CONFIRM_WORD = "delete"
 SYSTEM_DIRS = {"/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/opt", "/sbin", "/usr", "/var",
                "/Applications", "/Library", "/System", "/Users"}
 CRITICAL_DIR = "루트·홈·시스템 폴더"
@@ -18,65 +17,70 @@ def is_dangerous(line):
 
 
 def check(commands):
-    """(알리기만 할 문구, 확인받을 문구, 입력해야 할 단어) 를 돌려준다. 단어가 None 이면 y/N 으로 묻는다."""
-    notices = []
-    warnings = []
-    word = None
+    """한 줄을 판정해 Verdict 를 돌려준다. 등급은 명령과 지금 상태의 조합으로 정한다."""
+    findings = []
     cwd = os.getcwd()
     for real, wrappers in _walk(commands):
         name = os.path.basename(real[0])
-        if name == "cd":
+        if real[0].startswith("$"):
+            findings.append(Finding(L1, f"{APP_NAME}: 실행 전에는 무슨 명령인지 알 수 없어 확인하지 못했습니다"))
+        elif name == "cd":
             cwd = _after_cd(real, cwd)  # cd x && rm y 의 y 는 x 안에 있다
         elif name in DANGEROUS:
-            if _check_rm(real, wrappers, cwd, notices, warnings):
-                word = CONFIRM_WORD
+            findings.extend(_check_rm(real, wrappers, cwd))
         elif name == "git":
-            notice, warning, push_word = gitpush.check(real, cwd)
-            if notice:
-                notices.append(notice)
-            if warning:
-                warnings.append(warning)
-            word = word or push_word
+            findings.extend(_check_git(real, cwd))
         elif name == "find" and "-delete" in real:
-            warnings.append("find -delete: 찾은 파일을 삭제합니다. 되돌릴 수 없습니다")
-            if any(_is_critical(_resolve(w, cwd)) for w in _find_roots(real)):
-                word = CONFIRM_WORD
-    return _unique(notices), _unique(warnings), word
+            level = L3 if any(_is_critical(_resolve(w, cwd)) for w in _find_roots(real)) else L2
+            findings.append(Finding(level, "find -delete: 찾은 파일을 삭제합니다. 되돌릴 수 없습니다"))
+    return Verdict(list({f.message: f for f in findings}.values()))
 
 
-def unclear(commands):
-    """실행 전에는 무슨 명령인지 알 수 없으면 True. 막지 않고 알리기만 한다."""
-    return any(real[0].startswith("$") for real, _ in _walk(commands))
+def _check_git(real, cwd):
+    sub, args, where = state.git_subcommand(real, cwd)
+    if sub == "push":
+        return gitpush.check(args, where)
+    return gitwork.check(sub, args, where)
 
 
-def _check_rm(real, wrappers, cwd, notices, warnings):
-    """rm 을 판정한다. 단어 입력이 필요할 만큼 위험하면 True 를 돌려준다."""
+def _check_rm(real, wrappers, cwd):
     words = _operands(real)
-    lost = []
+    critical = []
     known = []
     unknown = "xargs" in wrappers or not words  # xargs rm 은 실행 전에 대상을 알 수 없다
     for word in words:
         target = _whole_dir(_resolve(_fill_vars(word), cwd)) if _fill_vars(word) else None
         if target and _is_critical(target):
-            lost.append((target, CRITICAL_DIR))
+            critical.append((target, CRITICAL_DIR))
         elif "$" in word or "{}" in word:  # rm $X, find -exec rm {}
             unknown = True
         else:
             known.append(word)
 
-    committed = 0
+    committed = []
+    lost = []
     for path in _expand(known, cwd):
-        count, items = state.inspect(path)
-        committed += count
+        paths, items = state.inspect(path)
+        committed.extend(paths)
         lost.extend(items)
 
+    findings = []
     if unknown:
-        warnings.append("rm: 지울 대상을 확인할 수 없습니다. 삭제한 파일은 되돌릴 수 없습니다")
-    if lost:
-        warnings.append(_describe_lost(lost, committed, cwd))
+        findings.append(Finding(L2, "rm: 지울 대상을 확인할 수 없습니다. 삭제한 파일은 되돌릴 수 없습니다"))
+    all_paths = committed + [path for path, _ in lost]
+    if critical or lost:
+        message = risk.describe("rm: 되살릴 수 없는 파일이 있습니다", critical + lost, cwd)
+        if committed:
+            message += f"\n    나머지 커밋된 파일 {len(set(committed))}개는 git restore 로 되살릴 수 있습니다"
+        # 루트, 홈, 커밋 기록까지 지우는 경우는 영향 범위를 볼 것 없이 L3 이다
+        if critical or any(reason in state.CRITICAL_REASONS for _, reason in lost):
+            findings.append(Finding(L3, message))
+        else:
+            findings.append(risk.judge_files(R3, all_paths, message))
     elif committed:
-        notices.append(f"rm: 커밋된 파일 {committed}개를 지웁니다. git restore 로 되살릴 수 있습니다")
-    return any(reason == CRITICAL_DIR or reason in state.CRITICAL_REASONS for _, reason in lost)
+        message = f"rm: 커밋된 파일 {len(set(committed))}개를 지웁니다. git restore 로 되살릴 수 있습니다"
+        findings.append(risk.judge_files(R2, all_paths, message))
+    return findings
 
 
 def _fill_vars(word):
@@ -131,24 +135,10 @@ def _expand(words, cwd):
         absolute = word if os.path.isabs(word) else os.path.join(cwd, word)
         if any(c in word for c in "*?["):
             base = word if os.path.isabs(word) else os.path.join(glob.escape(cwd), word)
-            paths.extend(glob.glob(base))
+            paths.extend(sorted(glob.glob(base)))
         elif os.path.lexists(absolute):
             paths.append(absolute)
     return paths
-
-
-def _describe_lost(lost, committed, cwd):
-    lines = ["rm: 되살릴 수 없는 파일이 있습니다"]
-    for path, reason in lost[:MAX_LISTED]:
-        shown = os.path.relpath(path, os.path.realpath(cwd))
-        if shown.startswith(".."):
-            shown = os.path.normpath(path)  # 현재 폴더 바깥은 전체 경로가 읽기 쉽다
-        lines.append(f"    {shown}  ({reason})")
-    if len(lost) > MAX_LISTED:
-        lines.append(f"    ... 외 {len(lost) - MAX_LISTED}개")
-    if committed:
-        lines.append(f"    나머지 커밋된 파일 {committed}개는 git restore 로 되살릴 수 있습니다")
-    return "\n".join(lines)
 
 
 def _after_cd(real, cwd):
@@ -160,10 +150,6 @@ def _after_cd(real, cwd):
     else:
         target = os.path.join(cwd, os.path.expanduser(args[0]))
     return target if os.path.isdir(target) else cwd
-
-
-def _unique(items):
-    return list(dict.fromkeys(items))
 
 
 def _walk(commands):

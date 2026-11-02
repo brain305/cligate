@@ -5,16 +5,17 @@ import subprocess
 TIMEOUT = 2  # 초. 넘기면 "확인 실패" 로 보고 사용자에게 묻는다
 NETWORK_TIMEOUT = 5
 COMMIT_FORMAT = "--format=%h  %s  (%an, %ar)"
+GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 GIT_INTERNAL = "git 기록 자체"
 WHOLE_REPO = "저장소 전체, .git 포함"
 CRITICAL_REASONS = {GIT_INTERNAL, WHOLE_REPO}  # 커밋 기록까지 사라져 git 으로도 되살릴 수 없다
 
 
 def inspect(path):
-    """지우려는 경로를 git 과 대조한다. (커밋되어 되살릴 수 있는 파일 수, [(되살릴 수 없는 것, 이유)]) 를 돌려준다."""
+    """지우려는 경로를 git 과 대조한다. ([커밋되어 되살릴 수 있는 파일], [(되살릴 수 없는 것, 이유)]) 를 돌려준다."""
     path = os.path.abspath(path)
     if ".git" in path.split(os.sep):
-        return 0, [(path, GIT_INTERNAL)]
+        return [], [(path, GIT_INTERNAL)]
 
     is_dir = os.path.isdir(path) and not os.path.islink(path)
     where = path if is_dir else os.path.dirname(path)
@@ -22,19 +23,19 @@ def inspect(path):
 
     top = _git(["rev-parse", "--show-toplevel"], where)
     if top is None:
-        return 0, [(path, "git 기록 없음")]
+        return [], [(path, "git 기록 없음")]
     top = top.strip()
     if is_dir and os.path.realpath(top) == os.path.realpath(path):
-        return 0, [(path, WHOLE_REPO)]
+        return [], [(path, WHOLE_REPO)]
 
     status = _git(["status", "--porcelain", "-z", "--untracked-files=all", "--ignored", "--", spec], where)
     tracked = _git(["ls-files", "-z", "--full-name", "--", spec], where)
     if status is None or tracked is None:
-        return 0, [(path, "상태 확인 실패")]
+        return [], [(path, "상태 확인 실패")]
 
     lost, dirty = _read_status(status, top)
     committed = set(tracked.split("\0")) - dirty - {""}
-    return len(committed), lost
+    return [os.path.join(top, name) for name in sorted(committed)], lost
 
 
 def _read_status(status, top):
@@ -62,8 +63,65 @@ def _reason(code):
     return "커밋 안 한 변경"
 
 
-def join(cwd, path):
-    return os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
+def git_subcommand(real, cwd):
+    """git -C x push ... 에서 (서브커맨드, 그 뒤의 인자, 실제 위치) 를 꺼낸다."""
+    i = 1
+    while i < len(real) and real[i].startswith("-"):
+        if real[i] == "-C" and i + 1 < len(real):
+            cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(real[i + 1])))
+        i += 2 if real[i] in GIT_VALUE_OPTS else 1
+    if i >= len(real):
+        return None, [], cwd
+    return real[i], real[i + 1:], cwd
+
+
+def repo_root(cwd):
+    top = _git(["rev-parse", "--show-toplevel"], cwd)
+    return top.strip() if top else None
+
+
+def uncommitted(cwd, paths=()):
+    """HEAD 와 다른 추적 파일 [(경로, 이유)]. 지워진 파일은 되살아나므로 뺀다. 확인하지 못하면 None."""
+    top = repo_root(cwd)
+    status = _git(["status", "--porcelain", "-z", "--untracked-files=no", "--", *paths], cwd)
+    if top is None or status is None:
+        return None
+    return _read_status(status, top)[0]
+
+
+def unstaged(cwd, paths):
+    """스테이지되지 않은 변경 [(경로, 이유)]. 확인하지 못하면 None."""
+    top = repo_root(cwd)
+    names = _git(["diff", "--name-only", "--diff-filter=d", "-z", "--", *paths], cwd)
+    if top is None or names is None:
+        return None
+    return [(os.path.join(top, name), "커밋 안 한 변경") for name in names.split("\0") if name]
+
+
+def dropped_commits(ref, cwd):
+    """git reset --hard 로 지금 브랜치에서 빠질 커밋들."""
+    out = _git(["log", COMMIT_FORMAT, f"{ref}..HEAD"], cwd)
+    return out.splitlines() if out else []
+
+
+def is_commit(ref, cwd):
+    return _git(["rev-parse", "--verify", "-q", f"{ref}^{{commit}}"], cwd) is not None
+
+
+def clean_requires_force(cwd):
+    return (_git(["config", "--type=bool", "--get", "clean.requireForce"], cwd) or "true").strip() == "true"
+
+
+def clean_targets(args, cwd):
+    """git clean 이 지울 경로를 -n 으로 미리 물어본다. 확인하지 못하면 None."""
+    # -n 은 -f 가 같이 있어도 지우지 않는다
+    out = _git(["-c", "core.quotePath=false", "clean", "-n", *args], cwd, extra_env={"LC_ALL": "C"})
+    if out is None:
+        return None
+    base = os.path.realpath(cwd)
+    prefix = "Would remove "
+    return [os.path.join(base, line[len(prefix):].strip('"').rstrip("/"))
+            for line in out.splitlines() if line.startswith(prefix)]
 
 
 def current_branch(cwd):
