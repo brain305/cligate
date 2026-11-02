@@ -119,19 +119,19 @@ def _check_ref(remote, src, dst, cwd, offline):
     protected = dst in PROTECTED
     remote_sha = _remote_sha(remote, dst, cwd, offline)
     if remote_sha is None:
-        message = f"git push --force: 원격 {remote}/{dst} 을 확인하지 못했습니다"
+        message = f"git push --force: 원격 {remote}/{dst} 확인 실패"
         return [Finding(L3 if protected else L2, message, CONFIRM_WORD)]
     if remote_sha == "":
         return []  # 원격에 없는 새 브랜치라 덮어쓸 것이 없다
 
     commits = state.remote_only_commits(remote, dst, src, remote_sha, cwd)
     if commits is None:
-        return [Finding(L3, f"git push --force: 원격 {remote}/{dst} 의 커밋을 확인하지 못했습니다", CONFIRM_WORD)]
+        return [Finding(L3, f"git push --force: 원격 {remote}/{dst} 커밋 확인 실패", CONFIRM_WORD)]
     if commits:
         title = f"git push --force: {remote}/{dst} 의 커밋 {len(commits)}개가 사라집니다"
         return [risk.judge(R3, S2, risk.list_commits(title, commits), CONFIRM_WORD)]
     if protected:
-        return [Finding(L3, f"git push --force: 보호 브랜치 {dst} 를 강제로 덮어씁니다", CONFIRM_WORD)]
+        return [Finding(L3, f"git push --force: 보호 브랜치 {dst} 덮어쓰기", CONFIRM_WORD)]
     return [Finding(L1, f"git push --force: {remote}/{dst} 에서 사라지는 커밋은 없습니다", CONFIRM_WORD)]
 
 

@@ -461,10 +461,10 @@ class TestCurated:
         assert len(names) <= len(gitspec.COMMANDS)
 
     def test_tab_still_lists_everything(self, repo):
-        assert "archimport" in values("git ", repo)
+        assert "cat-file" in values("git ", repo)
 
     def test_rare_command_found_when_typed(self, repo):
-        assert "archimport" in curated("git archi", repo)
+        assert "cat-file" in curated("git cat-", repo)
 
     def test_common_options_only(self, pushed):
         git("checkout", "-q", "main")

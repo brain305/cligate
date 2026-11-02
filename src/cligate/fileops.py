@@ -59,11 +59,11 @@ def check_redirects(real, cwd):
             continue  # 2>&1, >&- 는 파일이 아니다
         known = _known(target)
         if known is None:
-            findings.append(Finding(L2, f"{word}: 덮어쓸 파일을 확인할 수 없습니다"))
+            findings.append(Finding(L2, f"리다이렉트 {word}: 덮어쓸 파일을 확인할 수 없습니다"))
             continue
         path = paths.resolve(known, cwd)
         if not path.startswith(DEVICE_PREFIX) and os.path.isfile(path):
-            findings.extend(_judge(word, [path], cwd))
+            findings.extend(_judge(f"리다이렉트 {word}", [path], cwd))
     return findings
 
 
