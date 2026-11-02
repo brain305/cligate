@@ -180,7 +180,8 @@ jobs:
           chown -R tester "$PWD"
           cat > /tmp/run.sh <<'SCRIPT'
           set +e
-          python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q -e . "pytest>=8"
+          # 배포판 기본 pip 는 오래되어 -e 설치를 못 할 수 있으므로 사용자처럼 일반 설치로 시험한다
+          python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q . "pytest>=8"
           /tmp/venv/bin/python --version
           /tmp/venv/bin/python -m pytest -q -p no:cacheprovider 2>&1 | tee out.txt
           code=${PIPESTATUS[0]}
