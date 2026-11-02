@@ -3,6 +3,8 @@ import shlex
 import subprocess
 import tempfile
 
+from . import shell
+
 
 def run(line):
     """한 줄을 셸에서 실행하고, 셸이 끝난 위치로 CliGate 도 따라간다. 종료 코드를 돌려준다."""
@@ -12,7 +14,7 @@ def run(line):
     try:
         # trap EXIT 는 exit 로 끝나도 실행되고 종료 코드도 바꾸지 않는다
         save_cwd = f'printf %s "$PWD" > {shlex.quote(marker)}'
-        code = subprocess.run(f"trap {shlex.quote(save_cwd)} EXIT; {line}", shell=True).returncode
+        code = subprocess.run([shell.path(), "-c", shell.script(line, save_cwd)]).returncode
         with open(marker, encoding="utf-8") as f:
             _follow(f.read())
     finally:

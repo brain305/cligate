@@ -10,7 +10,7 @@ from prompt_toolkit.completion import CompleteEvent, Completer, Completion, Thre
 from prompt_toolkit.filters import completion_is_selected, has_completions
 from prompt_toolkit.key_binding import KeyBindings
 
-from . import gate, gitspec, learn, parse, state
+from . import gate, gitspec, learn, parse, shell, state
 from .risk import L2
 
 IDLE_SECONDS = 0.5
@@ -49,7 +49,7 @@ def candidates(text, cwd, deadline=None, curated=False):
     real, _ = parse.unwrap(prefix.split())
 
     if not real:
-        return [Candidate(c) for c in _commands(word, curated)]
+        return [Candidate(c, shell.aliases(wait=False).get(c, "")) for c in _commands(word, curated)]
     if os.path.basename(real[0]) == "git":
         found = _git(real, word, prefix, cwd, deadline, curated)
     elif os.path.basename(real[0]) == "cd" and len(real) > 1:
@@ -80,7 +80,7 @@ def _commands(word, curated):
     known = learn.rank(COMMAND_ORDER + learn.frequent())
     if not word:
         return known
-    fixed = [c for c in known if c.startswith(word)]
+    fixed = [c for c in [*known, *shell.aliases(wait=False)] if c.startswith(word)]
     if curated and fixed:
         return fixed
     return fixed + [c for c in state.path_commands() if c.startswith(word) and c not in fixed]

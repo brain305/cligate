@@ -1,6 +1,6 @@
 import os
 
-from . import APP_NAME, fileops, gitpush, gitwork, parse, paths, risk, state
+from . import APP_NAME, fileops, gitpush, gitwork, parse, paths, risk, shell, state
 from .risk import Finding, L1, L2, L3, R2, R3, Verdict
 
 DANGEROUS = {"rm"}
@@ -25,7 +25,8 @@ def check(commands, offline=False):
     """한 줄을 판정해 Verdict 를 돌려준다. 등급은 명령과 지금 상태의 조합으로 정한다."""
     findings = []
     cwd = os.getcwd()
-    for real, wrappers in _walk(commands):
+    # 입력 중에는 별칭을 읽느라 기다리지 않는다. 실행 전 판정은 다 읽은 뒤에 한다
+    for real, wrappers in _walk(commands, shell.aliases(wait=not offline)):
         name = os.path.basename(real[0])
         findings.extend(fileops.check_redirects(real, cwd))
         if real[0].startswith("$"):
@@ -68,7 +69,8 @@ def _check_rm(real, wrappers, cwd):
 
     committed = []
     lost = []
-    for path in paths.expand(known, cwd):
+    expanded = paths.expand(known, cwd)
+    for path in expanded[:risk.MAX_FILES]:  # 경계만 넘으면 등급이 정해지므로 전부 조사해 기다리게 하지 않는다
         files, items = state.inspect(path)
         committed.extend(files)
         lost.extend(items)
@@ -76,19 +78,20 @@ def _check_rm(real, wrappers, cwd):
     findings = []
     if unknown:
         findings.append(Finding(L2, "rm: 지울 대상을 확인할 수 없습니다. 삭제한 파일은 되돌릴 수 없습니다"))
-    all_paths = committed + [path for path, _ in lost]
+    all_paths = committed + [path for path, _ in lost] + expanded[risk.MAX_FILES:]
+    unchecked = f"\n    파일이 많아 앞 {risk.MAX_FILES}개만 확인했습니다" if len(expanded) > risk.MAX_FILES else ""
     if critical or lost:
         message = risk.describe("rm: 되살릴 수 없는 파일이 있습니다", critical + lost, cwd)
         if committed:
             message += f"\n    나머지 커밋된 파일 {len(set(committed))}개는 git restore 로 되살릴 수 있습니다"
         # 루트, 홈, 커밋 기록까지 지우는 경우는 영향 범위를 볼 것 없이 L3 이다
         if critical or any(reason in state.CRITICAL_REASONS for _, reason in lost):
-            findings.append(Finding(L3, message))
+            findings.append(Finding(L3, message + unchecked))
         else:
-            findings.append(risk.judge_files(R3, all_paths, message))
+            findings.append(risk.judge_files(R3, all_paths, message + unchecked))
     elif committed:
         message = f"rm: 커밋된 파일 {len(set(committed))}개를 지웁니다. git restore 로 되살릴 수 있습니다"
-        findings.append(risk.judge_files(R2, all_paths, message))
+        findings.append(risk.judge_files(R2, all_paths, message + unchecked))
     return findings
 
 
@@ -130,18 +133,29 @@ def _after_cd(real, cwd):
     return target if os.path.isdir(target) else cwd
 
 
-def _walk(commands):
+def _walk(commands, aliases, seen=frozenset()):
     """(sudo 등을 벗긴 진짜 명령, 벗겨낸 단어) 를 다른 명령 안에 들어 있는 것까지 차례로 내놓는다."""
     for argv in commands:
         real, wrappers = parse.unwrap(argv)
         if not real:
             continue
+        # sudo 뒤의 단어는 셸이 별칭으로 펼치지 않는다. seen 은 alias ls='ls -G' 와 순환을 막는다
+        if real[0] in aliases and real[0] not in seen and not parse.WRAPPERS.keys() & set(wrappers):
+            try:
+                expanded = parse.parse(aliases[real[0]])
+            except ValueError:
+                yield ["$unparsed"], []
+                continue
+            if expanded:
+                expanded[-1] = expanded[-1] + real[1:]
+            yield from _walk(expanded, aliases, seen | {real[0]})
+            continue
         yield real, wrappers
         inner = parse.inner_line(real)
         if inner is not None:
             try:
-                yield from _walk(parse.parse(inner))
+                yield from _walk(parse.parse(inner), aliases, seen)
             except ValueError:
                 yield ["$unparsed"], []
         if os.path.basename(real[0]) == "find":
-            yield from _walk(parse.find_exec(real))
+            yield from _walk(parse.find_exec(real), aliases, seen)

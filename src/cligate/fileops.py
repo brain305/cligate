@@ -103,7 +103,7 @@ def _judge(name, targets, cwd):
     targets = [t for t in dict.fromkeys(targets) if _has_content(t)]
     committed = []
     lost = []
-    for path in targets:
+    for path in targets[:risk.MAX_FILES]:
         files, items = state.inspect(path)
         committed.extend(files)
         lost.extend(items)

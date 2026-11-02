@@ -31,7 +31,8 @@ def expand(words, cwd):
         absolute = word if os.path.isabs(word) else os.path.join(cwd, word)
         if any(c in word for c in "*?["):
             base = word if os.path.isabs(word) else os.path.join(glob.escape(cwd), word)
-            found.extend(sorted(glob.glob(base)))
+            # zsh 의 ** 는 아래 폴더까지 펼친다. 다른 셸에서는 덜 지우므로 넓게 봐도 안전하다
+            found.extend(sorted(glob.glob(base, recursive=True)))
         elif os.path.lexists(absolute):
             found.append(absolute)
     return found

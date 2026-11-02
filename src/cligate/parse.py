@@ -2,6 +2,8 @@ import os
 import shlex
 import subprocess
 
+from . import shell
+
 # 명령을 가르는 기호에 쓰이는 문자. shlex 는 이어진 기호를 ");" 처럼 한 토큰으로 준다
 PUNCTUATION = set("();|&<>")
 # $(...) 와 `...` 자리를 대신하는 단어. $ 로 시작해서 명령 자리에 오면 "모르는 명령" 으로 잡힌다
@@ -120,7 +122,8 @@ def _is_separator(token):
 
 
 def syntax_error(line):
-    r = subprocess.run(["/bin/sh", "-n", "-c", line],
+    # 실행할 셸로 검사해야 zsh, bash 문법(cat <(ls) 등)을 오류로 막지 않는다
+    r = subprocess.run([shell.path(), "-n", "-c", line],
                        capture_output=True, text=True)
     return r.stderr.strip() if r.returncode != 0 else None
 

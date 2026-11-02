@@ -1,11 +1,12 @@
 from prompt_toolkit import PromptSession, prompt
-from . import APP_NAME, parse, builtin, complete, gate, learn, risk, runner
+from . import APP_NAME, parse, builtin, complete, gate, learn, risk, runner, shell
 
 
 NOT_RUN = {126, 127}  # 셸이 명령을 찾거나 실행하지 못했다. 오타를 학습하지 않는다
 
 
 def main():
+    shell.start_loading()
     # 자동완성은 0.5초 멈췄을 때 IdleTrigger 가 연다. TAB 은 언제든 동작한다
     session = PromptSession(completer=complete.completer(), complete_while_typing=False,
                             key_bindings=complete.key_bindings())

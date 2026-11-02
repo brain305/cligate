@@ -46,6 +46,7 @@ def isolated(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))  # 실제 사용 기록을 건드리지 않는다
+    monkeypatch.setenv("SHELL", "/bin/sh")  # 개발자 셸의 별칭과 문법이 결과에 끼어들지 않게 한다
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     monkeypatch.setenv("GIT_AUTHOR_NAME", "Me")
@@ -71,6 +72,7 @@ def repo(tmp_path, monkeypatch):
     git("add", "-A", cwd=path)
     git("commit", "-qm", "second", cwd=path)
     monkeypatch.chdir(path)
+    monkeypatch.setenv("PWD", str(path))  # 실행 후 위치를 따라가는 시험이 PWD 를 바꾼다
     return path
 
 
@@ -117,4 +119,5 @@ def pushed(tmp_path, monkeypatch):
     git("push", "-q", "origin", "feat", cwd=other)
 
     monkeypatch.chdir(work)
+    monkeypatch.setenv("PWD", str(work))
     return work
