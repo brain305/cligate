@@ -1,0 +1,82 @@
+# 측정 전에 고정하는 기대값. 표 4~6 과 2.2.3 의 규칙에서 정했고, 판정 코드를 돌려 맞추지 않았다.
+# setup 은 eval/fixture.sh 의 저장소 안에서 실행한다. command 는 판정만 하고 실행하지 않는다.
+# rule: 표 = R, S 결정표 / 질문1 = 무조건 L3 / 예외 = 2.2.3 의 별도 규칙과 표 15
+
+judgement:
+# ---- L0
+- {id: J01, command: "ls", setup: "", state: "변경 없음", r: R0, s: S0, rule: 표, expected: L0}
+- {id: J02, command: "git status", setup: "echo x >> a.txt", state: "파일 변경 있음", r: R0, s: S0, rule: 표, expected: L0}
+- {id: J03, command: "git log --oneline", setup: "", state: "변경 없음", r: R0, s: S0, rule: 표, expected: L0}
+- {id: J04, pair: J18, command: "git reset --hard", setup: "", state: "변경 없음", r: R0, s: S0, rule: 표, expected: L0}
+- {id: J05, pair: J19, command: "git checkout .", setup: "", state: "변경 없음", r: R0, s: S0, rule: 표, expected: L0}
+- {id: J06, pair: J20, command: "git clean -fd", setup: "", state: "추적 안 하는 파일 없음", r: R0, s: S0, rule: 표, expected: L0}
+- {id: J07, pair: J21, command: "git stash drop", setup: "", state: "stash 없음", r: R0, s: S0, rule: 표, expected: L0}
+- {id: J08, command: "mkdir newdir", setup: "", state: "같은 이름 없음", r: R1, s: S0, rule: 표, expected: L0}
+- {id: J09, command: "cp a.txt new.txt", setup: "", state: "대상 파일 없음", r: R1, s: S0, rule: 표, expected: L0}
+- {id: J10, command: "git switch -c topic", setup: "", state: "새 브랜치 생성", r: R1, s: S0, rule: 표, expected: L0}
+- {id: J11, command: "git switch main", setup: "on_feature", state: "변경 없는 상태의 브랜치 이동", r: R1, s: S0, rule: 표, expected: L0}
+- {id: J12, command: "sudo rm -rf nosuch/", setup: "", state: "지울 대상 없음", r: R0, s: S0, rule: 예외, expected: L0}
+# ---- L1
+- {id: J13, pair: J26, command: "rm a.txt", setup: "", state: "커밋되어 변경 없는 파일", r: R2, s: S1, rule: 표, expected: L1}
+- {id: J14, pair: J36, command: "rm logs/*.log", setup: "logs 11", state: "로그 12개 모두 커밋됨", r: R2, s: S1, rule: 표, expected: L1}
+- {id: J15, command: "rm -rf logs/", setup: "", state: "폴더 전체가 커밋됨, 소량", r: R2, s: S1, rule: 표, expected: L1}
+- {id: J16, pair: J27, command: "echo x > a.txt", setup: "", state: "커밋되어 변경 없는 파일을 덮어씀", r: R2, s: S1, rule: 표, expected: L1}
+- {id: J17, pair: J28, command: "cp a.txt b.txt", setup: "", state: "커밋되어 변경 없는 파일을 덮어씀", r: R2, s: S1, rule: 표, expected: L1}
+- {id: J22, command: "mv a.txt b.txt", setup: "", state: "커밋되어 변경 없는 파일을 덮어씀", r: R2, s: S1, rule: 표, expected: L1}
+- {id: J23, pair: J29, command: "git branch -D topic", setup: "git switch -q -c topic && local_commit && git push -q -u origin topic && git switch -q main", state: "커밋이 원격에 남음", r: R2, s: S1, rule: 표, expected: L1}
+- {id: J24, pair: J34, command: "git push origin --delete done", setup: "git switch -q -c done && local_commit && git push -q -u origin done && git switch -q main && git merge -q done && git push -q", state: "병합되어 다른 원격 브랜치에 커밋이 남음", r: R1, s: S2, rule: 표, expected: L1}
+- {id: J25, pair: J49, command: "git push -f", setup: "on_feature", state: "원격과 같아 바뀌는 것 없음", r: "-", s: "-", rule: 예외, expected: L1}
+- {id: J30, pair: J31, command: "git push origin topic", setup: "git switch -q -c topic && local_commit && git switch -q main && on_feature", state: "다른 브랜치를 올림, main 아님", r: "-", s: "-", rule: 예외, expected: L1}
+- {id: J32, command: "git commit -m 작업", setup: "on_feature && teammate 2 feature/login && echo x >> a.txt && git add a.txt", state: "받지 않은 커밋이 있음", r: "-", s: "-", rule: 예외, expected: L1}
+- {id: J33, command: "cd src && git add .", setup: "echo x > notes.txt", state: "하위 폴더 추가, 바깥 파일이 남음", r: "-", s: "-", rule: 예외, expected: L1}
+- {id: J35, command: "$(echo ls) -a", setup: "", state: "실행 전에는 무슨 명령인지 모름", r: "-", s: "-", rule: 예외, expected: L1}
+# ---- L2
+- {id: J26, pair: J13, command: "rm notes.txt", setup: "echo x > notes.txt", state: "커밋 안 한 파일", r: R3, s: S1, rule: 표, expected: L2}
+- {id: J18, pair: J04, command: "git reset --hard", setup: "echo x >> a.txt; echo x >> b.txt; echo x >> src/app.py", state: "파일 3개 변경", r: R3, s: S1, rule: 표, expected: L2}
+- {id: J19, pair: J05, command: "git checkout .", setup: "echo x >> a.txt", state: "파일 1개 변경", r: R3, s: S1, rule: 표, expected: L2}
+- {id: J20, pair: J06, command: "git clean -fd", setup: "echo x > notes.txt", state: "추적 안 하는 파일 1개", r: R3, s: S1, rule: 표, expected: L2}
+- {id: J21, pair: J07, command: "git stash drop", setup: "echo x >> a.txt && git stash -q", state: "stash 1개", r: R3, s: S1, rule: 표, expected: L2}
+- {id: J27, pair: J16, command: "echo x > notes.txt", setup: "echo 원본 > notes.txt", state: "커밋 안 한 파일을 덮어씀", r: R3, s: S1, rule: 표, expected: L2}
+- {id: J28, pair: J17, command: "cp a.txt notes.txt", setup: "echo 원본 > notes.txt", state: "커밋 안 한 파일을 덮어씀", r: R3, s: S1, rule: 표, expected: L2}
+- {id: J29, pair: J23, command: "git branch -D topic", setup: "git switch -q -c topic && local_commit && git switch -q main", state: "커밋이 이 브랜치에만 있음", r: R3, s: S1, rule: 표, expected: L2}
+- {id: J34, pair: J24, command: "git push origin --delete solo", setup: "git switch -q -c solo && local_commit && git push -q -u origin solo && git switch -q main", state: "커밋이 이 컴퓨터에만 남음", r: R2, s: S2, rule: 표, expected: L2}
+- {id: J36, pair: J14, command: "rm logs/*.log", setup: "logs 60", state: "로그 61개 모두 커밋됨", r: R2, s: S2, rule: 표, expected: L2}
+- {id: J31, pair: J30, command: "git push origin main", setup: "on_feature", state: "지금 브랜치가 feature/login", r: "-", s: "-", rule: 예외, expected: L2}
+- {id: J37, command: "git push", setup: "on_feature && teammate 2 feature/login && local_commit", state: "받지 않은 팀원 커밋 2개, 강제 아님", r: "-", s: "-", rule: 예외, expected: L2}
+- {id: J38, command: "rm $X", setup: "unset X", state: "지울 대상을 확인할 수 없음", r: "-", s: "-", rule: 예외, expected: L2}
+# ---- L3
+- {id: J39, command: "sudo rm -rf /", setup: "", state: "루트 전체", r: "-", s: "-", rule: 질문1, expected: L3}
+- {id: J40, command: "rm -rf ~", setup: "", state: "홈 전체", r: "-", s: "-", rule: 질문1, expected: L3}
+- {id: J41, command: "rm -rf $BUILD/", setup: "unset BUILD", state: "빈 변수라 / 가 됨", r: "-", s: "-", rule: 질문1, expected: L3}
+- {id: J42, command: "rm -rf .git", setup: "", state: "저장소 기록 삭제", r: "-", s: "-", rule: 질문1, expected: L3}
+- {id: J43, command: "sh -c 'rm -rf /'", setup: "", state: "다른 명령 안에 숨은 루트 삭제", r: "-", s: "-", rule: 질문1, expected: L3}
+- {id: J44, pair: J14, command: "rm logs/*.log", setup: "logs 10 && echo x > logs/new.log && sparse logs/big.log 340", state: "2개 미커밋, 340MB", r: R3, s: S2, rule: 표, expected: L3}
+- {id: J45, command: "rm dump.sql", setup: "sparse dump.sql 120", state: "커밋 안 한 120MB 파일", r: R3, s: S2, rule: 표, expected: L3}
+- {id: J46, pair: J20, command: "git clean -fdx", setup: "echo 'build/' > .gitignore && git add . && git commit -qm 무시 && mkdir build && for i in $(seq 60); do echo x > build/$i.log; done", state: "무시된 파일 60개", r: R3, s: S2, rule: 표, expected: L3}
+- {id: J47, pair: J34, command: "git push origin --delete gone", setup: "teammate_new_branch gone", state: "커밋이 어디에도 남지 않음", r: R3, s: S2, rule: 표, expected: L3}
+- {id: J48, command: "git push origin --delete main", setup: "on_feature", state: "보호 브랜치 삭제", r: "-", s: "-", rule: 질문1, expected: L3}
+- {id: J49, pair: J25, command: "git push --force", setup: "on_feature && teammate 2 feature/login", state: "원격이 2커밋 앞섬", r: "-", s: "-", rule: 질문1, expected: L3}
+- {id: J50, command: "git push -f origin main", setup: "local_commit", state: "보호 브랜치를 실제로 바꿈", r: "-", s: "-", rule: 질문1, expected: L3}
+
+# 표 9 와 "충돌 해결, 받기, add, commit, push" 순서에서 정한 1위 후보
+state_scenarios:
+- {id: S01, input: "git ", setup: "on_feature && teammate 2 feature/login", state: "원격에 새 커밋, 변경 없음", expected_first: "pull"}
+- {id: S02, input: "git ", setup: "on_feature && teammate 2 feature/login && local_commit", state: "갈라짐", expected_first: "pull --rebase"}
+- {id: S03, input: "git ", setup: "local_commit", state: "올릴 커밋 있음, 변경 없음", expected_first: "push"}
+- {id: S04, input: "git ", setup: "echo x >> a.txt", state: "add 할 파일 있음", expected_first: "add"}
+- {id: S05, input: "git ", setup: "echo x >> a.txt && git add a.txt", state: "커밋 대기 파일 있음", expected_first: "commit"}
+- {id: S06, input: "git ", setup: "echo x >> a.txt && git add a.txt && echo x >> b.txt", state: "add 할 파일과 커밋 대기 파일", expected_first: "add"}
+- {id: S07, input: "git ", setup: "local_commit && echo x >> b.txt && git add b.txt", state: "커밋 대기 파일과 올릴 커밋", expected_first: "commit"}
+- {id: S08, input: "git ", setup: "local_commit && echo x >> b.txt", state: "add 할 파일과 올릴 커밋", expected_first: "add"}
+- {id: S09, input: "git ", setup: "on_feature && teammate 2 feature/login && echo x >> a.txt", state: "원격에 새 커밋과 add 할 파일", expected_first: "pull"}
+- {id: S10, input: "git ", setup: "echo x > notes.txt", state: "추적 안 하는 파일만 있음", expected_first: "add"}
+- {id: S11, input: "git ", setup: "merge_conflict", state: "merge 충돌", expected_first: "add"}
+- {id: S12, input: "git ", setup: "rebase_conflict", state: "rebase 충돌", expected_first: "rebase --continue"}
+- {id: S13, input: "git ", setup: "git switch -q -c topic", state: "올린 적 없는 브랜치, 변경 없음", expected_first: "push -u origin topic"}
+- {id: S14, input: "git ", setup: "git checkout -q --detach", state: "브랜치 없는 상태", expected_first: "switch -c"}
+- {id: S15, input: "git ", setup: "", state: "최신, 변경 없음", expected_first: "status"}
+- {id: S16, input: "git pu", setup: "on_feature && teammate 2 feature/login", state: "원격에 새 커밋", expected_first: "pull"}
+- {id: S17, input: "git pu", setup: "", state: "최신", expected_first: "push"}
+- {id: S18, input: "git pu", setup: "local_commit", state: "올릴 커밋 있음", expected_first: "push"}
+- {id: S19, input: "git push --", setup: "on_feature && teammate 2 feature/login", state: "원격에 새 커밋", expected_first: "--force-with-lease"}
+- {id: S20, input: "git push --", setup: "", state: "최신", expected_first: "--set-upstream"}

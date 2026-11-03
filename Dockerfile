@@ -37,3 +37,13 @@ USER demo
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+
+# 측정: 보고서 지표 케이스를 돌린다. 명령은 판정만 하고 실행하지 않는다
+FROM base AS eval
+USER root
+RUN pip install --no-cache-dir pyyaml
+COPY eval /app/eval
+USER demo
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1
+CMD ["python", "eval/run.py"]
