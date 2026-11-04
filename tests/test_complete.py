@@ -10,7 +10,11 @@ from pathlib import Path
 import pytest
 from conftest import commit, git, write
 
-from cligate import complete, gitspec, state
+from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.document import Document
+from prompt_toolkit.formatted_text import to_formatted_text
+
+from cligate import complete, gitspec, risk, state
 from cligate.complete import candidates
 
 
@@ -20,6 +24,10 @@ def values(text, cwd):
 
 def meta(text, cwd):
     return {c.value: c.meta for c in candidates(text, str(cwd))}
+
+
+def level(text, cwd, value):
+    return {c.value: c.level for c in candidates(text, str(cwd))}[value]
 
 
 class TestCommands:
@@ -122,7 +130,7 @@ class TestGitOptions:
         names = values("git push --", pushed)
         assert names[0] == "--force-with-lease"
         assert names[-1] == "--force"
-        assert "L3" in meta("git push --", pushed)["--force"]
+        assert level("git push --", pushed, "--force") == risk.L3
 
     def test_status_line_behind_raises_lease_before_fetch(self, pushed, monkeypatch):
         from cligate import statusline
@@ -152,16 +160,16 @@ class TestGitOptions:
     def test_reset_hard_marked_only_when_there_is_work_to_lose(self, repo):
         assert complete.MARK not in meta("git reset --", repo)["--hard"]
         write(repo / "a", "changed\n")
-        assert "L2" in meta("git reset --", repo)["--hard"]
+        assert level("git reset --", repo, "--hard") == risk.L2
         assert values("git reset --", repo)[-1] == "--hard"
 
     def test_clean_force_marked(self, repo):
         write(repo / "u")
-        assert "L2" in meta("git clean --", repo)["--force"]
+        assert level("git clean --", repo, "--force") == risk.L2
 
     def test_checkout_force_marked(self, repo):
         write(repo / "a", "changed\n")
-        assert "L2" in meta("git checkout --", repo)["--force"]
+        assert level("git checkout --", repo, "--force") == risk.L2
 
     def test_judging_candidates_executes_nothing(self, repo):
         write(repo / "u")
@@ -285,13 +293,13 @@ class TestFirstArguments:
         found = candidates("git reset ", str(repo))
         assert found[0].value == "HEAD~1"
         assert found[-1].value == "--hard"
-        assert "L2" in found[-1].meta
+        assert found[-1].level == risk.L2
 
     def test_clean_dry_run_before_delete(self, repo):
         write(repo / "u")
         found = candidates("git clean ", str(repo))
         assert found[0].value == "-n"
-        assert "L2" in {c.value: c.meta for c in found}["-fd"]
+        assert {c.value: c.level for c in found}["-fd"] == risk.L2
 
     def test_stash_subcommands(self, repo):
         assert values("git stash ", repo)[:2] == ["pop", "list"]
@@ -501,7 +509,7 @@ class TestCurated:
         git("checkout", "-q", "main")
         commit(pushed, "hotfix")  # 원격과 달라야 보호 브랜치를 실제로 바꾼다
         force = candidates("git push --", str(pushed), curated=True)[-1]
-        assert "L3" in force.meta
+        assert force.level == risk.L3
         assert "덮어씀" in force.meta
 
     def test_every_listed_command_has_description(self, repo):
@@ -695,7 +703,7 @@ class TestStashMark:
         assert complete.MARK not in meta("git stash ", repo)["drop"]
         write(repo / "a", "changed\n")
         git("stash", "-q")
-        assert "L2" in meta("git stash ", repo)["drop"]
+        assert level("git stash ", repo, "drop") == risk.L2
         assert values("git stash ", repo)[-1] == "drop"
 
 
@@ -890,3 +898,46 @@ class TestRealTerminal:
         self._read(fd, 1.0)
         self._quit(pid, fd)
         assert (repo / "made-by-echo").exists()
+
+
+class TestLevelBadges:
+    def many_committed(self, repo, count=6):
+        for i in range(count):
+            write(repo / f"f{i}", "x\n")
+        git("add", ".", cwd=repo)
+        git("commit", "-q", "-m", "files", cwd=repo)
+
+    def test_only_top_five_are_measured(self, repo):
+        self.many_committed(repo)
+        rows = [c for c in candidates("rm f", str(repo))]
+        assert [c.level for c in rows[:5]] == [risk.L1] * 5
+        assert rows[5].level == risk.L0
+
+    def test_expired_deadline_keeps_list_without_badges(self, repo):
+        self.many_committed(repo)
+        rows = candidates("rm f", str(repo), time.monotonic() - 1)
+        assert len(rows) == 6
+        assert {c.level for c in rows} == {risk.L0}
+
+    def test_known_risk_beyond_top_five_keeps_level(self, pushed):
+        git("checkout", "-q", "feat")
+        rows = {c.value: c for c in candidates("git push --", str(pushed))}
+        assert rows["--force"].level >= risk.L2
+        assert rows["--force"].meta.startswith(complete.MARK)
+        assert "L2" not in rows["--force"].meta and "L3" not in rows["--force"].meta
+
+    @pytest.mark.parametrize("level,color", [(risk.L1, "ansicyan"), (risk.L2, "ansiyellow"), (risk.L3, "ansired")])
+    def test_badge_color_follows_level(self, level, color):
+        style, text = complete.badge(level)
+        assert color in style and text == f" L{level} "
+
+    def test_level_zero_has_no_badge(self):
+        assert complete.badge(risk.L0) is None
+
+    def test_menu_shows_badge_only_when_risky(self, repo, monkeypatch):
+        self.many_committed(repo, 1)
+        monkeypatch.chdir(repo)
+        rows = list(complete.GateCompleter().get_completions(Document("rm f"), CompleteEvent()))
+        assert any("ansicyan" in style and "L1" in text for style, text in to_formatted_text(rows[0].display))
+        rows = list(complete.GateCompleter().get_completions(Document("git sta"), CompleteEvent()))
+        assert [text for _, text in to_formatted_text(rows[0].display)] == ["status"]
