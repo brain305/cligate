@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cligate"
-version = "0.1.0"
+version = "0.2.0"
 description = "상태 인식 셸 프론트엔드 — 되돌릴 수 없는 명령을 실행 전에 막는다"
 license = "MIT"
 requires-python = ">=3.9"         # 서버 도달 범위: RHEL 9, Ubuntu 22.04+
