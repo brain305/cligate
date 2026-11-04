@@ -277,20 +277,6 @@ def _state_rules(snap, publish=None):
     rule(not snap.changed and not snap.untracked, [], ["add", "commit", "stash"])  # advice.statusHints
     return up, down
 
-    def rule(condition, raise_, lower=()):
-        if condition:
-            up.extend(raise_)
-            down.extend(lower)
-
-    rule(snap.rebasing, ["rebase --continue", "rebase --abort", "add"], ["rebase", "merge"])  # advice.resolveConflict
-    rule(snap.conflicts, ["add", "mergetool"], ["commit"])  # advice.mergeConflict
-    rule(snap.behind and snap.ahead, ["pull --rebase"], ["push"])  # advice.diverging
-    rule(snap.behind and not snap.ahead, ["pull", "--force-with-lease"], ["push"])  # advice.pushFetchFirst
-    rule(snap.changed and not snap.conflicts and not snap.rebasing, ["commit", "stash"], ["merge"])  # advice.commitBeforeMerge
-    rule(snap.detached, ["switch -c"])  # advice.detachedHead
-    rule(not snap.changed and not snap.untracked, [], ["add", "commit", "stash"])  # advice.statusHints
-    return up, down
-
 
 def _mark_risk(values, prefix, deadline, sub):
     """3단계: 위험 표시. L2 이상은 맨 아래로 보내고 표시한다. 숨기지는 않는다."""
