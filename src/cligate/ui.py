@@ -160,7 +160,7 @@ class Prompt:
         ]), focused_element=edit)
 
     def _border_style(self):
-        """목록에서 고른 후보의 등급 색을 쓴다. 고른 후보가 없거나 L0 이면 기본 색이다."""
+        """입력 중인 줄의 등급 색을 쓴다. L0 이면 기본 색이다."""
         return risk.LEVEL_STYLE.get(self.line_risk.level, FRAME)
 
     def _frame_title(self, title, columns):

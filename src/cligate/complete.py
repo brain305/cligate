@@ -55,14 +55,22 @@ def candidates(text, cwd, deadline=None, curated=False):
     real, _ = parse.unwrap(prefix.split())
 
     if not real:
-        return [Candidate(c, shell.aliases(wait=False).get(c, "")) for c in _commands(word, curated)]
+        commands = [Candidate(c, shell.aliases(wait=False).get(c, "")) for c in _commands(word, curated)]
+        return _exact_first(commands, word)
     if os.path.basename(real[0]) == "git":
         found = _git(real, word, prefix, cwd, deadline, curated)
     elif os.path.basename(real[0]) == "cd" and len(real) > 1:
         return []  # cd 는 인자를 하나만 받는다
     else:
         found = _paths(real[0], word, cwd)
-    return _add_levels(_drop_useless(found, real[1:], word), prefix, deadline)
+    return _add_levels(_exact_first(_drop_useless(found, real[1:], word), word), prefix, deadline)
+
+
+def _exact_first(found, word):
+    """지금 쓴 단어와 똑같은 후보를 맨 위로 올린다. 위험한 후보여도 사용자가 이미 쓴 것이므로 그렇게 한다."""
+    if not word:
+        return found
+    return sorted(found, key=lambda c: c.value.rstrip("/") != word.rstrip("/"))
 
 
 def _add_levels(found, prefix, deadline):
@@ -410,9 +418,9 @@ class IdleTrigger:
 
 
 class LineRisk:
-    """목록에서 고른 후보의 추정 등급. 입력창 테두리가 쓴다. 고른 후보가 없으면 L0 이다.
+    """입력 중인 줄의 추정 등급. 입력창 테두리가 쓴다.
 
-    고른 후보는 줄에 들어가므로 그 줄을 판정한다. 배지를 계산하지 않은 후보도 등급을 알 수 있다.
+    목록에서 후보를 고르면 그 후보가 줄에 들어가므로, 고를 때와 직접 칠 때를 함께 처리한다.
     판정은 git 을 부르므로 입력이 잠시 멈추면 별도 스레드에서 한다. 실제 판정은 엔터 뒤에 따로 한다.
     """
 
@@ -427,22 +435,21 @@ class LineRisk:
 
     def __call__(self, buffer):
         self._cancel()
-        self.task = get_app().create_background_task(self._update(buffer))
+        if buffer.text.strip():
+            self.task = get_app().create_background_task(self._update(buffer.text))
+        else:
+            self.level = L0
 
     def _cancel(self):
         if self.task and not self.task.done():
             self.task.cancel()
 
-    async def _update(self, buffer):
+    async def _update(self, text):
         try:
-            await asyncio.sleep(self.idle)  # 후보를 고르는 동안에는 줄을 바꾸는 사이 선택 정보가 잠시 비어 있다
-            selected = buffer.complete_state and buffer.complete_state.current_completion
-            level = L0
-            if selected:
-                level = await asyncio.get_running_loop().run_in_executor(None, _estimate, buffer.text)
+            await asyncio.sleep(self.idle)
+            self.level = await asyncio.get_running_loop().run_in_executor(None, _estimate, text)
         except asyncio.CancelledError:
             return
-        self.level = level
         get_app().invalidate()
 
 
