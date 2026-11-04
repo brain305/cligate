@@ -2,7 +2,7 @@
 
 2026 capstone design
 ### demo
-https://claude.ai/artifact/DCdcEaPgrq86FK64MXn2NF
+https://claude.ai/artifact/AcsVWs6MzH6XGwon5VX43c
 
 ### 보고서
 https://claude.ai/artifact/SC1tbrYQvadwi8UzTjNLY7
