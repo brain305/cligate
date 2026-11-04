@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass, field
 
 L0, L1, L2, L3 = 0, 1, 2, 3  # 바로 실행, 알림 후 실행, y/N 확인, 단어 입력
-LEVEL_STYLE = {L1: "fg:ansicyan", L2: "fg:ansiyellow", L3: "fg:ansired bold"}  # 경고 화면과 자동완성 배지가 함께 쓴다
+LEVEL_STYLE = {L1: "fg:ansicyan", L2: "fg:ansiyellow", L3: "fg:ansired bold"}  # 경고 화면과 입력창 테두리가 함께 쓴다
 R0, R1, R2, R3 = 0, 1, 2, 3  # 안 바뀜, 명령 하나로 되돌림, 기록에서 되돌림, 되돌릴 수 없음
 S0, S1, S2 = 0, 1, 2  # 대상 없음, 작음, 큼 또는 공유 자원
 

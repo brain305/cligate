@@ -121,6 +121,13 @@ class Monitor:
             parts.append(("fg:ansibrightblack", f"  ·  원격 기준 {_age(self.clock() - status.checked_at)}"))
         return parts
 
+    def border_color(self):
+        """입력창 테두리 색. 상태 줄과 같은 색이고, 저장소 밖이거나 확인 중이면 흐리게 둔다."""
+        status = self.status
+        if status is None or status.branch is None or not self._settled.is_set():
+            return "ansibrightblack"
+        return describe(status)[1]
+
     def check_once(self, network=True):
         """상태를 한 번 조사해 저장한다."""
         status = self._investigate(network)

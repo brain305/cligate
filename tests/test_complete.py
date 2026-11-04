@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import select
@@ -6,6 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import commit, git, write
@@ -941,3 +943,69 @@ class TestLevelBadges:
         assert any("ansicyan" in style and "L1" in text for style, text in to_formatted_text(rows[0].display))
         rows = list(complete.GateCompleter().get_completions(Document("git sta"), CompleteEvent()))
         assert [text for _, text in to_formatted_text(rows[0].display)] == ["status"]
+
+    def test_risky_meta_gets_class(self):
+        row = complete.Candidate("--force", "⚠ 원격을 덮어씀", level=risk.L3)
+        assert to_formatted_text(complete._meta(row))[0][0] == "class:risk-l3"
+
+    def test_safe_meta_stays_plain(self):
+        assert complete._meta(complete.Candidate("--tags", "태그도 함께", level=risk.L1)) == "태그도 함께"
+
+
+class TestLineRisk:
+    def fake_preview(self, monkeypatch):
+        levels = {"safe": risk.L0, "force": risk.L3}
+
+        def preview(line):
+            if line == "gone":
+                raise OSError
+            return risk.Verdict([risk.Finding(levels[line], "판정")])
+        monkeypatch.setattr(complete.gate, "preview", preview)
+
+    def line(self, text):
+        return SimpleNamespace(text=text)
+
+    def test_risky_line_raises_level(self, monkeypatch):
+        self.fake_preview(monkeypatch)
+
+        async def scenario():
+            line_risk = complete.LineRisk(idle=0)
+            line_risk(self.line("force"))
+            await line_risk.task
+            return line_risk.level
+        assert asyncio.run(scenario()) == risk.L3
+
+    def test_newer_text_replaces_older_one(self, monkeypatch):
+        self.fake_preview(monkeypatch)
+
+        async def scenario():
+            line_risk = complete.LineRisk(idle=0)
+            line_risk(self.line("force"))
+            line_risk(self.line("safe"))
+            await line_risk.task
+            await asyncio.sleep(0)
+            return line_risk.level
+        assert asyncio.run(scenario()) == risk.L0
+
+    def test_emptied_line_clears_level_at_once(self):
+        async def scenario():
+            line_risk = complete.LineRisk(idle=60)
+            line_risk.level = risk.L3
+            line_risk(self.line("  "))
+            return line_risk.level
+        assert asyncio.run(scenario()) == risk.L0
+
+    def test_reset_cancels_pending_check(self, monkeypatch):
+        self.fake_preview(monkeypatch)
+
+        async def scenario():
+            line_risk = complete.LineRisk(idle=0)
+            line_risk(self.line("force"))
+            line_risk.reset()
+            await asyncio.sleep(0.01)
+            return line_risk.level
+        assert asyncio.run(scenario()) == risk.L0
+
+    def test_missing_folder_is_not_an_error(self, monkeypatch):
+        self.fake_preview(monkeypatch)
+        assert complete._estimate("gone") == risk.L0

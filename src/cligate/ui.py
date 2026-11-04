@@ -27,9 +27,13 @@ MENU_HEIGHT = 8
 DIM = "fg:ansibrightblack"
 MENU_STYLE = Style.from_dict({
     "completion-menu": "bg:#1c2027 #e6e8ec",
-    "completion-menu.completion.current": "bg:#2c3a3c #ffffff",
+    "completion-menu.completion.current": "bg:#0f6b74 #ffffff bold",
     "completion-menu.meta.completion": "bg:#1c2027 #98a1b0",
-    "completion-menu.meta.completion.current": "bg:#2c3a3c #c9ced6",
+    "completion-menu.meta.completion.current": "bg:#0f6b74 #e3f4f6",
+    "completion-menu.meta.completion risk-l2": "#e5c25c",
+    "completion-menu.meta.completion risk-l3": "#f0716a",
+    "completion-menu.meta.completion.current risk-l2": "#fff1c7",  # 청록 배경에서도 읽히도록 밝게
+    "completion-menu.meta.completion.current risk-l3": "#ffd9d6",
 })
 
 
@@ -101,9 +105,12 @@ class Prompt:
         self.command = Buffer(completer=complete.completer(), complete_while_typing=False, history=InMemoryHistory(),
                               multiline=False, accept_handler=_finish)
         self.command.on_text_changed += complete.IdleTrigger()
+        self.line_risk = complete.LineRisk()
+        self.command.on_text_changed += self.line_risk
 
     def read_command(self):
         self.command.reset()
+        self.line_risk.reset()
         return self._run(self.command, self.name, complete.key_bindings(), status=True)
 
     def ask(self, title):
@@ -121,28 +128,64 @@ class Prompt:
             self.monitor.on_change = None
 
     def _layout(self, buffer, title, status):
+        def border():
+            return self._border_style() if status else DIM
+
         def top():
-            return [(DIM, f"╭─ {title} " + "─" * max(0, _columns() - get_cwidth(title) - 5) + "╮")]
+            text = self._frame_title(title, _columns()) if status else title
+            return [(border(), f"╭─ {text} " + "─" * max(0, _columns() - get_cwidth(text) - 5) + "╮")]
 
         def bottom():
-            return [(DIM, "╰" + "─" * max(0, _columns() - 2) + "╯")]
+            return [(border(), "╰" + "─" * max(0, _columns() - 2) + "╯")]
 
-        edit = Window(BufferControl(buffer, input_processors=[BeforeInput("> ")]), wrap_lines=True,
+        def symbol():
+            return [(f"{border()} bold" if status else "", "❯ ")]
+
+        edit = Window(BufferControl(buffer, input_processors=[BeforeInput(symbol)]), wrap_lines=True,
                       dont_extend_height=True)
-        middle = VSplit([Window(width=1, char="│", style=DIM), Window(width=1, char=" "), edit,
-                         Window(width=1, char=" "), Window(width=1, char="│", style=DIM)])
+        middle = VSplit([Window(width=1, char="│", style=border), Window(width=1, char=" "), edit,
+                         Window(width=1, char=" "), Window(width=1, char="│", style=border)])
         status_line = Window(FormattedTextControl(self._status_parts), height=1, dont_extend_height=True)
+        menu_hint = Window(FormattedTextControl(lambda: _menu_hint(buffer.complete_state)), height=1,
+                           dont_extend_height=True)
         return Layout(HSplit([
             Window(FormattedTextControl(top), height=1, dont_extend_height=True),
             middle,
             Window(FormattedTextControl(bottom), height=1, dont_extend_height=True),
             ConditionalContainer(status_line, Condition(lambda: status) & ~has_completions),  # 목록이 그 자리를 쓴다
             CompletionsMenu(max_height=MENU_HEIGHT, scroll_offset=1),
+            ConditionalContainer(menu_hint, Condition(lambda: status) & has_completions),
         ]), focused_element=edit)
+
+    def _border_style(self):
+        """입력 중인 줄이 확인을 받아야 하면 그 등급의 색을, 아니면 깃 상태의 색을 쓴다."""
+        level = self.line_risk.level
+        return risk.LEVEL_STYLE[level] if level >= risk.L2 else f"fg:{self.monitor.border_color()}"
+
+    def _frame_title(self, title, columns):
+        """빨강은 갈라짐, 노랑은 pull 필요와 같은 색이므로 제목으로 구분한다. 창이 좁으면 원래 제목만 쓴다.
+
+        원격을 확인하지 않은 값이라 엔터 뒤의 등급과 다를 수 있다. 그래서 확인 방법은 약속하지 않는다.
+        """
+        level = self.line_risk.level
+        if level < risk.L2:
+            return title
+        text = f"{title} · L{level} 위험 추정"
+        return text if get_cwidth(text) + 5 <= columns else title
 
     def _status_parts(self):
         parts = self.monitor.status_parts()
         return [("", "  "), *parts, (DIM, ("  ·  " if parts else "") + _short_cwd())]
+
+
+def _menu_hint(state):
+    """목록 아래의 위치와 키 안내."""
+    if state is None:
+        return []
+    total = len(state.completions)
+    if state.complete_index is None:
+        return [(DIM, f" {total}개  ·  Tab 선택")]
+    return [(DIM, f" {state.complete_index + 1}/{total}  ·  Tab 다음  ·  Space 확정")]
 
 
 def _finish(buffer):

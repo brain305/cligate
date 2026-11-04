@@ -12,9 +12,11 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 
 from . import gate, gitspec, learn, parse, shell, state, statusline
-from .risk import L0, L2, LEVEL_STYLE
+from .risk import L0, L1, L2, L3
 
 IDLE_SECONDS = 0.5
+RISK_IDLE_SECONDS = 0.15  # 목록에서 후보를 옮겨 다닐 때도 바로 반응하도록 목록을 여는 시간보다 짧다
+BADGE_STYLE = {L1: "bg:ansicyan fg:ansiblack", L2: "bg:ansiyellow fg:ansiblack", L3: "bg:ansired fg:ansiwhite bold"}
 BUDGET_SECONDS = 0.3  # 넘기면 자동으로 띄우지 않는다. TAB 은 기다린다. 강제 푸시 판정에 110ms 쯤 걸린다
 BADGE_MARGIN_SECONDS = 0.15  # 판정 하나가 이만큼 걸릴 수 있다. 남은 시간이 이보다 적으면 배지만 포기하고 목록은 띄운다
 MAX_BADGES = 5  # 판정은 후보마다 git 을 부르므로 화면 위쪽만 계산한다
@@ -75,12 +77,19 @@ def _add_levels(found, prefix, deadline):
 
 def badge(level):
     """후보 옆에 붙일 (스타일, 글자). 대부분 L0 이므로 L0 은 표시하지 않는다."""
-    return (LEVEL_STYLE[level], f" L{level} ") if level != L0 else None
+    return (BADGE_STYLE[level], f" L{level} ") if level != L0 else None
 
 
 def _display(candidate):
     mark = badge(candidate.level)
     return candidate.value if mark is None else FormattedText([("", candidate.value + " "), mark])
+
+
+def _meta(candidate):
+    """L2 이상의 설명에 색을 입힌다. 선택 줄에서는 색이 달라지므로 색은 ui.MENU_STYLE 이 정한다."""
+    if candidate.level >= L2 and candidate.meta:
+        return FormattedText([(f"class:risk-l{candidate.level}", candidate.meta)])
+    return candidate.meta
 
 
 def _drop_useless(found, typed, word):
@@ -370,7 +379,7 @@ class GateCompleter(Completer):
 
         word = _current_word(_last_segment(text) or "")
         for c in found:
-            yield Completion(c.value + c.append, start_position=-len(word), display=_display(c), display_meta=c.meta)
+            yield Completion(c.value + c.append, start_position=-len(word), display=_display(c), display_meta=_meta(c))
 
 
 class IdleTrigger:
@@ -398,6 +407,49 @@ class IdleTrigger:
             buffer.complete_state = None
         if buffer.text.strip():
             _open(buffer)
+
+
+class LineRisk:
+    """입력 중인 줄의 추정 등급. 입력창 테두리가 쓴다.
+
+    목록에서 후보를 고르면 그 후보가 줄에 들어가므로, 고를 때와 직접 칠 때를 함께 처리한다.
+    판정은 git 을 부르므로 입력이 잠시 멈추면 별도 스레드에서 한다. 실제 판정은 엔터 뒤에 따로 한다.
+    """
+
+    def __init__(self, idle=RISK_IDLE_SECONDS):
+        self.idle = idle
+        self.level = L0
+        self.task = None
+
+    def reset(self):
+        self._cancel()
+        self.level = L0
+
+    def __call__(self, buffer):
+        self._cancel()
+        if buffer.text.strip():
+            self.task = get_app().create_background_task(self._update(buffer.text))
+        else:
+            self.level = L0
+
+    def _cancel(self):
+        if self.task and not self.task.done():
+            self.task.cancel()
+
+    async def _update(self, text):
+        try:
+            await asyncio.sleep(self.idle)
+            self.level = await asyncio.get_running_loop().run_in_executor(None, _estimate, text)
+        except asyncio.CancelledError:
+            return
+        get_app().invalidate()
+
+
+def _estimate(text):
+    try:
+        return gate.preview(text).level
+    except OSError:  # 입력 중 현재 폴더가 사라진 경우
+        return L0
 
 
 def _open(buffer):

@@ -1,8 +1,10 @@
+from types import SimpleNamespace
+
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from cligate import risk, ui
-from cligate.risk import Finding, L1, L2, L3
+from cligate.risk import Finding, L0, L1, L2, L3
 
 
 def box_lines(title, body):
@@ -63,6 +65,69 @@ class TestShow:
         assert ("╭" in out) == box
         assert f"[L{level}]" in out
         assert "제목" in out and "내용" in out
+
+
+class FakeMonitor:
+    def __init__(self, color="ansigreen"):
+        self.color = color
+
+    def border_color(self):
+        return self.color
+
+
+class TestFrame:
+    def prompt(self, level=L0):
+        screen = ui.Prompt("cligate", FakeMonitor())
+        screen.line_risk.level = level
+        return screen
+
+    def test_border_follows_git_state_when_line_is_safe(self):
+        assert self.prompt()._border_style() == "fg:ansigreen"
+        assert self.prompt(L1)._border_style() == "fg:ansigreen"
+
+    @pytest.mark.parametrize("level, color", [(L2, "ansiyellow"), (L3, "ansired")])
+    def test_risky_line_overrides_git_state(self, level, color):
+        assert color in self.prompt(level)._border_style()
+
+    @pytest.mark.parametrize("level, expected", [
+        (L0, "cligate"),
+        (L1, "cligate"),
+        (L2, "cligate · L2 위험 추정"),
+        (L3, "cligate · L3 위험 추정"),
+    ])
+    def test_title_names_the_level(self, level, expected):
+        assert self.prompt(level)._frame_title("cligate", 80) == expected
+
+    def test_narrow_terminal_keeps_plain_title(self):
+        assert self.prompt(L3)._frame_title("cligate", 20) == "cligate"
+
+    def test_read_command_clears_previous_level(self, monkeypatch):
+        screen = self.prompt(L3)
+        monkeypatch.setattr(screen, "_run", lambda *a, **k: None)
+        screen.read_command()
+        assert screen.line_risk.level == L0
+
+
+class TestMenu:
+    def state(self, index):
+        return SimpleNamespace(completions=[1, 2, 3], complete_index=index)
+
+    def test_hint_before_selection(self):
+        assert "3개" in ui._menu_hint(self.state(None))[0][1]
+
+    def test_hint_shows_position(self):
+        assert "2/3" in ui._menu_hint(self.state(1))[0][1]
+
+    def test_no_hint_without_list(self):
+        assert ui._menu_hint(None) == []
+
+    @pytest.mark.parametrize("menu, color", [
+        ("class:completion-menu.meta.completion", "f0716a"),
+        ("class:completion-menu.meta.completion.current", "ffd9d6"),
+    ])
+    def test_risk_meta_stays_readable_when_selected(self, menu, color):
+        attrs = ui.MENU_STYLE.get_attrs_for_style_str(f"{menu} class:risk-l3")
+        assert attrs.color == color
 
 
 def test_short_cwd(monkeypatch, tmp_path):
