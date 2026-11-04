@@ -25,6 +25,7 @@ from . import complete, risk, statusline
 MAX_BOX_WIDTH = 100
 MENU_HEIGHT = 8
 DIM = "fg:ansibrightblack"
+FRAME = ""  # 터미널 기본 글자색. 어두운 배경에서는 밝게, 밝은 배경에서는 어둡게 보인다
 MENU_STYLE = Style.from_dict({
     "completion-menu": "bg:#1c2027 #e6e8ec",
     "completion-menu.completion.current": "bg:#0f6b74 #ffffff bold",
@@ -129,7 +130,7 @@ class Prompt:
 
     def _layout(self, buffer, title, status):
         def border():
-            return self._border_style() if status else DIM
+            return self._border_style() if status else FRAME
 
         def top():
             text = self._frame_title(title, _columns()) if status else title
@@ -139,7 +140,8 @@ class Prompt:
             return [(border(), "╰" + "─" * max(0, _columns() - 2) + "╯")]
 
         def symbol():
-            return [(f"{border()} bold" if status else "", "❯ ")]
+            style = border()
+            return [(f"{style} bold" if style else "", "❯ ")]
 
         edit = Window(BufferControl(buffer, input_processors=[BeforeInput(symbol)]), wrap_lines=True,
                       dont_extend_height=True)
@@ -158,19 +160,18 @@ class Prompt:
         ]), focused_element=edit)
 
     def _border_style(self):
-        """입력 중인 줄이 확인을 받아야 하면 그 등급의 색을, 아니면 깃 상태의 색을 쓴다."""
-        level = self.line_risk.level
-        return risk.LEVEL_STYLE[level] if level >= risk.L2 else f"fg:{self.monitor.border_color()}"
+        """목록에서 고른 후보의 등급 색을 쓴다. 고른 후보가 없거나 L0 이면 기본 색이다."""
+        return risk.LEVEL_STYLE.get(self.line_risk.level, FRAME)
 
     def _frame_title(self, title, columns):
-        """빨강은 갈라짐, 노랑은 pull 필요와 같은 색이므로 제목으로 구분한다. 창이 좁으면 원래 제목만 쓴다.
+        """색을 구분하기 어려워도 등급을 읽을 수 있게 제목에 쓴다. 창이 좁으면 원래 제목만 쓴다.
 
-        원격을 확인하지 않은 값이라 엔터 뒤의 등급과 다를 수 있다. 그래서 확인 방법은 약속하지 않는다.
+        원격을 확인하지 않은 값이라 엔터 뒤의 등급과 다를 수 있다. 그래서 추정이라고 밝힌다.
         """
         level = self.line_risk.level
-        if level < risk.L2:
+        if level < risk.L1:
             return title
-        text = f"{title} · L{level} 위험 추정"
+        text = f"{title} · L{level} 추정"
         return text if get_cwidth(text) + 5 <= columns else title
 
     def _status_parts(self):

@@ -23,28 +23,6 @@ def text(monitor):
     return "".join(part for _, part in monitor.status_parts())
 
 
-class TestBorderColor:
-    @pytest.mark.parametrize("kind, color", [
-        (UP_TO_DATE, "ansigreen"),
-        (BEHIND, "ansiyellow"),
-        (AHEAD, "ansicyan"),
-        (DIVERGED, "ansired"),
-        (FAILED, "ansibrightblack"),
-    ])
-    def test_follows_status_line(self, monitor, kind, color):
-        monitor.status = statusline.Status("/", "main", kind)
-        assert monitor.border_color() == color
-
-    def test_dim_outside_repo(self, monitor):
-        monitor.status = None
-        assert monitor.border_color() == "ansibrightblack"
-
-    def test_dim_while_checking(self, monitor):
-        monitor.status = statusline.Status("/", "main", UP_TO_DATE)
-        monitor._settled.clear()
-        assert monitor.border_color() == "ansibrightblack"
-
-
 class TestKinds:
     def test_up_to_date(self, pushed, monitor):
         git("checkout", "-q", "main")

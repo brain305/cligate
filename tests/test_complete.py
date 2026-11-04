@@ -962,10 +962,11 @@ class TestLineRisk:
             return risk.Verdict([risk.Finding(levels[line], "판정")])
         monkeypatch.setattr(complete.gate, "preview", preview)
 
-    def line(self, text):
-        return SimpleNamespace(text=text)
+    def line(self, text, selected=True):
+        state = SimpleNamespace(current_completion=object()) if selected else None
+        return SimpleNamespace(text=text, complete_state=state)
 
-    def test_risky_line_raises_level(self, monkeypatch):
+    def test_selected_candidate_raises_level(self, monkeypatch):
         self.fake_preview(monkeypatch)
 
         async def scenario():
@@ -975,7 +976,39 @@ class TestLineRisk:
             return line_risk.level
         assert asyncio.run(scenario()) == risk.L3
 
-    def test_newer_text_replaces_older_one(self, monkeypatch):
+    def test_typed_line_is_not_judged(self, monkeypatch):
+        self.fake_preview(monkeypatch)
+
+        async def scenario():
+            line_risk = complete.LineRisk(idle=0)
+            line_risk(self.line("force", selected=False))
+            await line_risk.task
+            return line_risk.level
+        assert asyncio.run(scenario()) == risk.L0
+
+    def test_open_list_without_selection_is_not_judged(self, monkeypatch):
+        self.fake_preview(monkeypatch)
+
+        async def scenario():
+            line_risk = complete.LineRisk(idle=0)
+            line = SimpleNamespace(text="force", complete_state=SimpleNamespace(current_completion=None))
+            line_risk(line)
+            await line_risk.task
+            return line_risk.level
+        assert asyncio.run(scenario()) == risk.L0
+
+    def test_leaving_selection_clears_level(self, monkeypatch):
+        self.fake_preview(monkeypatch)
+
+        async def scenario():
+            line_risk = complete.LineRisk(idle=0)
+            line_risk.level = risk.L3
+            line_risk(self.line("force", selected=False))
+            await line_risk.task
+            return line_risk.level
+        assert asyncio.run(scenario()) == risk.L0
+
+    def test_newer_selection_replaces_older_one(self, monkeypatch):
         self.fake_preview(monkeypatch)
 
         async def scenario():
@@ -984,14 +1017,6 @@ class TestLineRisk:
             line_risk(self.line("safe"))
             await line_risk.task
             await asyncio.sleep(0)
-            return line_risk.level
-        assert asyncio.run(scenario()) == risk.L0
-
-    def test_emptied_line_clears_level_at_once(self):
-        async def scenario():
-            line_risk = complete.LineRisk(idle=60)
-            line_risk.level = risk.L3
-            line_risk(self.line("  "))
             return line_risk.level
         assert asyncio.run(scenario()) == risk.L0
 

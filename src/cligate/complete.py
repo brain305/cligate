@@ -410,9 +410,9 @@ class IdleTrigger:
 
 
 class LineRisk:
-    """입력 중인 줄의 추정 등급. 입력창 테두리가 쓴다.
+    """목록에서 고른 후보의 추정 등급. 입력창 테두리가 쓴다. 고른 후보가 없으면 L0 이다.
 
-    목록에서 후보를 고르면 그 후보가 줄에 들어가므로, 고를 때와 직접 칠 때를 함께 처리한다.
+    고른 후보는 줄에 들어가므로 그 줄을 판정한다. 배지를 계산하지 않은 후보도 등급을 알 수 있다.
     판정은 git 을 부르므로 입력이 잠시 멈추면 별도 스레드에서 한다. 실제 판정은 엔터 뒤에 따로 한다.
     """
 
@@ -427,21 +427,22 @@ class LineRisk:
 
     def __call__(self, buffer):
         self._cancel()
-        if buffer.text.strip():
-            self.task = get_app().create_background_task(self._update(buffer.text))
-        else:
-            self.level = L0
+        self.task = get_app().create_background_task(self._update(buffer))
 
     def _cancel(self):
         if self.task and not self.task.done():
             self.task.cancel()
 
-    async def _update(self, text):
+    async def _update(self, buffer):
         try:
-            await asyncio.sleep(self.idle)
-            self.level = await asyncio.get_running_loop().run_in_executor(None, _estimate, text)
+            await asyncio.sleep(self.idle)  # 후보를 고르는 동안에는 줄을 바꾸는 사이 선택 정보가 잠시 비어 있다
+            selected = buffer.complete_state and buffer.complete_state.current_completion
+            level = L0
+            if selected:
+                level = await asyncio.get_running_loop().run_in_executor(None, _estimate, buffer.text)
         except asyncio.CancelledError:
             return
+        self.level = level
         get_app().invalidate()
 
 

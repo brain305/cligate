@@ -67,33 +67,24 @@ class TestShow:
         assert "제목" in out and "내용" in out
 
 
-class FakeMonitor:
-    def __init__(self, color="ansigreen"):
-        self.color = color
-
-    def border_color(self):
-        return self.color
-
-
 class TestFrame:
     def prompt(self, level=L0):
-        screen = ui.Prompt("cligate", FakeMonitor())
+        screen = ui.Prompt("cligate", SimpleNamespace())
         screen.line_risk.level = level
         return screen
 
-    def test_border_follows_git_state_when_line_is_safe(self):
-        assert self.prompt()._border_style() == "fg:ansigreen"
-        assert self.prompt(L1)._border_style() == "fg:ansigreen"
+    def test_border_uses_terminal_color_without_selected_risk(self):
+        assert self.prompt()._border_style() == ui.FRAME == ""
 
-    @pytest.mark.parametrize("level, color", [(L2, "ansiyellow"), (L3, "ansired")])
-    def test_risky_line_overrides_git_state(self, level, color):
+    @pytest.mark.parametrize("level, color", [(L1, "ansicyan"), (L2, "ansiyellow"), (L3, "ansired")])
+    def test_border_follows_selected_level(self, level, color):
         assert color in self.prompt(level)._border_style()
 
     @pytest.mark.parametrize("level, expected", [
         (L0, "cligate"),
-        (L1, "cligate"),
-        (L2, "cligate · L2 위험 추정"),
-        (L3, "cligate · L3 위험 추정"),
+        (L1, "cligate · L1 추정"),
+        (L2, "cligate · L2 추정"),
+        (L3, "cligate · L3 추정"),
     ])
     def test_title_names_the_level(self, level, expected):
         assert self.prompt(level)._frame_title("cligate", 80) == expected
