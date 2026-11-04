@@ -2,6 +2,7 @@
 # 맥에서 실행한다. 사용법:
 #   docker/run.sh          시연 환경 (녹화용)
 #   docker/run.sh test     리눅스에서 전체 테스트
+#   docker/run.sh eval     보고서 지표 케이스 70건 측정
 #   docker/run.sh shell    시연 상태에서 셸 열기 (cligate 없이 확인할 때)
 #
 # 폴더 연결(-v), --privileged, docker.sock 연결은 일부러 쓰지 않는다. 쓰면 컨테이너 안의 rm 이
@@ -22,8 +23,12 @@ case "${1:-demo}" in
         docker build -q --target test -t cligate-test . >/dev/null
         exec docker run --rm --network none --hostname cligate-test cligate-test
         ;;
+    eval)
+        docker build -q --target eval -t cligate-eval . >/dev/null
+        exec docker run --rm --network none --hostname cligate-eval cligate-eval
+        ;;
     *)
-        echo "사용법: docker/run.sh [demo|test|shell]" >&2
+        echo "사용법: docker/run.sh [demo|test|shell|eval]" >&2
         exit 2
         ;;
 esac
