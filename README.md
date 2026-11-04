@@ -78,15 +78,15 @@ pipx uninstall cligate
 
 이미 설치했다면 `pipx upgrade cligate`로 최신 버전으로 올립니다. 특정 버전을 설치하려면 주소 뒤에 태그를 붙입니다.
 
+```bash
+pipx install --force git+https://github.com/brain305/cligate.git@v0.1.0
+```
+
 일부 우분투 환경에서 pipx 설치가 안되는 경우 발생 -> 우분투의 패키지가 구형이어서 발생하는 문제이므로 패키지 업데이트가 필요합니다.
 ```bash
 sudo apt update
 ```
 
-
-```bash
-pipx install --force git+https://github.com/brain305/cligate.git@v0.1.0
-```
 
 ### v0.2.0 (2026-11-04)
 
