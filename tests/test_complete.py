@@ -124,6 +124,25 @@ class TestGitOptions:
         assert names[-1] == "--force"
         assert "L3" in meta("git push --", pushed)["--force"]
 
+    def test_status_line_behind_raises_lease_before_fetch(self, pushed, monkeypatch):
+        from cligate import statusline
+        git("checkout", "-q", "feat")
+        m = statusline.Monitor()
+        monkeypatch.setattr(statusline, "_current", m)
+        m.check_once()
+        assert m.status.behind == 2
+        assert values("git push --", pushed)[0] == "--force-with-lease"
+
+    def test_failed_remote_check_keeps_fetched_counts(self, pushed, monkeypatch):
+        from cligate import statusline
+        git("checkout", "-q", "feat")
+        git("fetch", "-q")
+        m = statusline.Monitor()
+        m.status = statusline.Status(os.path.realpath(pushed), "feat", statusline.FAILED)
+        monkeypatch.setattr(statusline, "_current", m)
+        assert values("git push --", pushed)[0] == "--force-with-lease"
+        assert values("git ", pushed)[0] == "pull"
+
     def test_never_hidden(self, pushed):
         assert "--force" in values("git push --f", pushed)
 

@@ -23,12 +23,23 @@ LEVELS = ("L0", "L1", "L2", "L3")
 MATCH_TARGET, MISS_TARGET, FIRST_TARGET, COMPLETE_MS_TARGET, JUDGE_MS_TARGET = 90, 0, 80, 300, 200
 
 
+def collect_status():
+    """실제 앱처럼 상태 수집기가 원격을 한 번 확인한 뒤에 입력을 받는다."""
+    from cligate import shell, statusline
+    shell.start_loading()
+    shell.aliases(wait=True)  # 실제로는 시작할 때 읽어 둔다. 그 시간은 응답 시간이 아니다
+    monitor = statusline.Monitor().start()
+    limit = time.monotonic() + TIMEOUT_SECONDS / 2
+    while monitor.status is None and time.monotonic() < limit:
+        time.sleep(0.01)
+    monitor.stop()
+
+
 def judge_one(case):
     """실제 입력 흐름의 문법 검사, 파싱, 판정만 돌린다. 실행 단계는 부르지 않는다."""
-    from cligate import gate, parse, shell
+    from cligate import gate, parse
     line = case["command"]
-    shell.start_loading()
-    shell.aliases(wait=True)  # 실제로는 시작할 때 읽어 둔다. 그 시간은 판정 시간이 아니다
+    collect_status()
     if parse.syntax_error(line):
         return {"error": "문법 오류로 판정"}
     started = time.perf_counter()
@@ -39,14 +50,8 @@ def judge_one(case):
 
 def complete_one(case):
     """자동으로 뜨는 목록과 같은 조건으로 후보를 받는다. 제한 시간을 넘기면 실제로 안 뜨므로 빈 목록이다."""
-    from cligate import complete, shell, statusline
-    shell.start_loading()
-    shell.aliases(wait=True)
-    monitor = statusline.Monitor().start()
-    limit = time.monotonic() + TIMEOUT_SECONDS / 2
-    while monitor.status is None and time.monotonic() < limit:
-        time.sleep(0.01)
-    monitor.stop()
+    from cligate import complete
+    collect_status()
     started = time.monotonic()
     found = complete.candidates(case["input"], os.getcwd(), started + complete.BUDGET_SECONDS, curated=True)
     seconds = time.monotonic() - started

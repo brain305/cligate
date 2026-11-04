@@ -171,11 +171,17 @@ def _plain(args):
     return [a for a in parse.strip_redirects(args) if not a.startswith("-")]
 
 
-def _git_subcommands(word, cwd, curated):
+def _current_snapshot(cwd):
+    """상태 줄이 원격에 직접 물어본 값이 추적 정보보다 새로우므로 그 값을 쓴다. 확인하지 못했으면 쓰지 않는다."""
     snap = state.snapshot(cwd)
     remote = statusline.latest(cwd)
-    if snap and remote:  # 상태 줄이 원격에 직접 물어본 값이 추적 정보보다 새롭다
+    if snap and remote and remote.kind in statusline.COMPARED:
         snap.ahead, snap.behind = remote.ahead, remote.behind
+    return snap
+
+
+def _git_subcommands(word, cwd, curated):
+    snap = _current_snapshot(cwd)
     publish = _publish_command(snap, cwd)
     up, down = _state_rules(snap, publish)
     known = learn.rank([*gitspec.COMMANDS, *learn.frequent("git")], "git")
@@ -213,7 +219,7 @@ def _real_values(word, snap, cwd):
 
 
 def _git_options(sub, word, prefix, cwd, deadline, first, curated):
-    up, down = _state_rules(state.snapshot(cwd))
+    up, down = _state_rules(_current_snapshot(cwd))
     up = [u.removeprefix(f"{sub} ") for u in up]
     known = learn.rank([*first, *(v for v, _ in gitspec.spec(sub).options), *learn.frequent(f"git {sub}")], f"git {sub}")
     matches = [o for o in known if o.startswith(word)]

@@ -16,6 +16,7 @@ REDRAW_SECONDS = 5  # "원격 기준 8초 전" 을 갱신하는 간격
 
 UP_TO_DATE, BEHIND, AHEAD, DIVERGED, NO_UPSTREAM, REMOTE_GONE, FAILED = (
     "up_to_date", "behind", "ahead", "diverged", "no_upstream", "remote_gone", "failed")
+COMPARED = (UP_TO_DATE, BEHIND, AHEAD, DIVERGED)  # 원격과 비교해 앞섬과 뒤처짐을 센 상태
 
 _current = None
 
