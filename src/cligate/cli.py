@@ -1,6 +1,6 @@
 import sys
 
-from . import APP_NAME, parse, builtin, gate, learn, risk, runner, shell, statusline, ui
+from . import APP_NAME, __version__, parse, builtin, gate, learn, risk, runner, shell, statusline, ui
 
 
 REMOTE_WAIT_SECONDS = 1.5
@@ -8,6 +8,9 @@ NOT_RUN = {126, 127}  # 셸이 명령을 찾거나 실행하지 못했다. 오�
 
 
 def main():
+    if sys.argv[1:] == ["--version"]:
+        print(f"{APP_NAME} {__version__}")
+        return
     if sys.platform == "win32":
         # /bin/sh 로 실행하는 구조라 명령을 입력하는 순간 오류로 끝난다. 설치는 되므로 처음에 알린다
         sys.stdout.reconfigure(errors="replace")

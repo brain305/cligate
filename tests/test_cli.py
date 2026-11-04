@@ -5,7 +5,7 @@ import sys
 import pytest
 from conftest import commit, git, write
 
-from cligate import cli
+from cligate import APP_NAME, __version__, cli
 
 
 def run(lines, cwd):
@@ -13,6 +13,15 @@ def run(lines, cwd):
         [sys.executable, "-c", "from cligate.cli import main; main()"],
         input="\n".join([*lines, ""]), cwd=cwd, capture_output=True, text=True, timeout=30,
     )
+
+
+def test_version_prints_and_exits(repo):
+    result = subprocess.run(
+        [sys.executable, "-c", "from cligate.cli import main; main()", "--version"],
+        cwd=repo, capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL,
+    )
+    assert result.returncode == 0
+    assert result.stdout == f"{APP_NAME} {__version__}\n"
 
 
 class TestConfirm:
