@@ -10,9 +10,6 @@ https://claude.ai/artifact/SC1tbrYQvadwi8UzTjNLY7
 ### 설계
 https://claude.ai/artifact/NtPzq6Cd3meWjb2aVKKMeJ
 
-### github link
-https://github.com/brain305/cligate
-
 ## CliGate가 하는 일
 
 터미널에 입력한 명령을 셸보다 먼저 받아, 지금 저장소와 파일 상태를 보고 위험하면 실행 전에 알리고 막습니다. 같은 정보로 자동완성 순서도 정합니다.
@@ -132,7 +129,7 @@ docker/run.sh test   # 리눅스에서 전체 테스트
 | 6    | 확인·차단 게이트            | ✅   |
 | 7    | 0.5초 멈추면 뜨는 자동완성  | ✅   |
 | 8    | 입력창 아래의 원격 상태 표시 | ✅  |
-| 9    | 보고서의 검증 지표 측정     | ⬜   |
+| 9    | 보고서의 검증 지표 측정     | ✅   |
 
 ## 개발
 

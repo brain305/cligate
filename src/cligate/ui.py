@@ -17,6 +17,7 @@ from prompt_toolkit.layout import ConditionalContainer, FormattedTextControl, HS
 from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.layout.processors import BeforeInput
+from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 from . import complete, risk, statusline
@@ -24,13 +25,18 @@ from . import complete, risk, statusline
 MAX_BOX_WIDTH = 100
 MENU_HEIGHT = 8
 DIM = "fg:ansibrightblack"
-LEVEL_STYLE = {risk.L1: "fg:ansicyan", risk.L2: "fg:ansiyellow", risk.L3: "fg:ansired bold"}
+MENU_STYLE = Style.from_dict({
+    "completion-menu": "bg:#1c2027 #e6e8ec",
+    "completion-menu.completion.current": "bg:#2c3a3c #ffffff",
+    "completion-menu.meta.completion": "bg:#1c2027 #98a1b0",
+    "completion-menu.meta.completion.current": "bg:#2c3a3c #c9ced6",
+})
 
 
 def show(finding):
     """판정 결과를 보여준다. L1 은 줄로, 확인이 필요한 L2 와 L3 는 눈에 띄게 상자로 그린다."""
     title, *body = str(finding).split("\n")
-    style = LEVEL_STYLE.get(finding.level, "")
+    style = risk.LEVEL_STYLE.get(finding.level, "")
     if finding.level < risk.L2:
         _print([(style, title), *[("", f"\n{line}") for line in body]])
         return
@@ -107,7 +113,7 @@ class Prompt:
     def _run(self, buffer, title, extra_bindings, status):
         app = Application(layout=self._layout(buffer, title, status),
                           key_bindings=merge_key_bindings([_bindings(buffer), extra_bindings]),
-                          erase_when_done=True, refresh_interval=statusline.REDRAW_SECONDS)
+                          style=MENU_STYLE, erase_when_done=True, refresh_interval=statusline.REDRAW_SECONDS)
         self.monitor.on_change = app.invalidate
         try:
             return app.run()

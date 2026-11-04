@@ -8,13 +8,16 @@ from dataclasses import dataclass
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, ThreadedCompleter
 from prompt_toolkit.filters import completion_is_selected, has_completions
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 
 from . import gate, gitspec, learn, parse, shell, state, statusline
-from .risk import L2
+from .risk import L0, L2, LEVEL_STYLE
 
 IDLE_SECONDS = 0.5
 BUDGET_SECONDS = 0.3  # 넘기면 자동으로 띄우지 않는다. TAB 은 기다린다. 강제 푸시 판정에 110ms 쯤 걸린다
+BADGE_MARGIN_SECONDS = 0.15  # 판정 하나가 이만큼 걸릴 수 있다. 남은 시간이 이보다 적으면 배지만 포기하고 목록은 띄운다
+MAX_BADGES = 5  # 판정은 후보마다 git 을 부르므로 화면 위쪽만 계산한다
 MAX_CANDIDATES = 200
 MARK = "⚠"
 
@@ -34,6 +37,7 @@ class Candidate:
     value: str
     meta: str = ""
     append: str = ""  # 고르면 값 뒤에 더 넣을 글자
+    level: int = L0   # 판정 등급. 계산하지 않은 후보는 L0 이다
 
 
 def candidates(text, cwd, deadline=None, curated=False):
@@ -56,7 +60,27 @@ def candidates(text, cwd, deadline=None, curated=False):
         return []  # cd 는 인자를 하나만 받는다
     else:
         found = _paths(real[0], word, cwd)
-    return _drop_useless(found, real[1:], word)
+    return _add_levels(_drop_useless(found, real[1:], word), prefix, deadline)
+
+
+def _add_levels(found, prefix, deadline):
+    """화면 위쪽 후보의 등급을 계산한다. 네트워크를 쓰지 않으므로 추정값이고, 실제 판정은 엔터 뒤에 한다."""
+    for candidate in found[:MAX_BADGES]:
+        if deadline is not None and time.monotonic() > deadline - BADGE_MARGIN_SECONDS:
+            break
+        if candidate.level == L0:
+            candidate.level = gate.preview(prefix + candidate.value).level
+    return found
+
+
+def badge(level):
+    """후보 옆에 붙일 (스타일, 글자). 대부분 L0 이므로 L0 은 표시하지 않는다."""
+    return (LEVEL_STYLE[level], f" L{level} ") if level != L0 else None
+
+
+def _display(candidate):
+    mark = badge(candidate.level)
+    return candidate.value if mark is None else FormattedText([("", candidate.value + " "), mark])
 
 
 def _drop_useless(found, typed, word):
@@ -277,20 +301,6 @@ def _state_rules(snap, publish=None):
     rule(not snap.changed and not snap.untracked, [], ["add", "commit", "stash"])  # advice.statusHints
     return up, down
 
-    def rule(condition, raise_, lower=()):
-        if condition:
-            up.extend(raise_)
-            down.extend(lower)
-
-    rule(snap.rebasing, ["rebase --continue", "rebase --abort", "add"], ["rebase", "merge"])  # advice.resolveConflict
-    rule(snap.conflicts, ["add", "mergetool"], ["commit"])  # advice.mergeConflict
-    rule(snap.behind and snap.ahead, ["pull --rebase"], ["push"])  # advice.diverging
-    rule(snap.behind and not snap.ahead, ["pull", "--force-with-lease"], ["push"])  # advice.pushFetchFirst
-    rule(snap.changed and not snap.conflicts and not snap.rebasing, ["commit", "stash"], ["merge"])  # advice.commitBeforeMerge
-    rule(snap.detached, ["switch -c"])  # advice.detachedHead
-    rule(not snap.changed and not snap.untracked, [], ["add", "commit", "stash"])  # advice.statusHints
-    return up, down
-
 
 def _mark_risk(values, prefix, deadline, sub):
     """3단계: 위험 표시. L2 이상은 맨 아래로 보내고 표시한다. 숨기지는 않는다."""
@@ -302,7 +312,7 @@ def _mark_risk(values, prefix, deadline, sub):
             continue
         verdict = gate.preview(prefix + value)
         if verdict.level >= L2:
-            risky.append(Candidate(value, f"{MARK} L{verdict.level} {plain.meta}".rstrip(), plain.append))
+            risky.append(Candidate(value, f"{MARK} {plain.meta}".rstrip(), plain.append, verdict.level))
         else:
             safe.append(plain)
     return safe + risky
@@ -360,7 +370,7 @@ class GateCompleter(Completer):
 
         word = _current_word(_last_segment(text) or "")
         for c in found:
-            yield Completion(c.value + c.append, start_position=-len(word), display=c.value, display_meta=c.meta)
+            yield Completion(c.value + c.append, start_position=-len(word), display=_display(c), display_meta=c.meta)
 
 
 class IdleTrigger:
