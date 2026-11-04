@@ -10,9 +10,6 @@ https://claude.ai/artifact/SC1tbrYQvadwi8UzTjNLY7
 ### 설계
 https://claude.ai/artifact/NtPzq6Cd3meWjb2aVKKMeJ
 
-### github link
-https://github.com/brain305/cligate
-
 ## CliGate가 하는 일
 
 터미널에 입력한 명령을 셸보다 먼저 받아, 지금 저장소와 파일 상태를 보고 위험하면 실행 전에 알리고 막습니다. 같은 정보로 자동완성 순서도 정합니다.
