@@ -6,7 +6,7 @@ import sys
 import pytest
 from conftest import git, write
 
-from cligate import complete, learn, parse
+from cligate import complete, learn, parse, risk
 
 
 def use(line, times=1):
@@ -151,7 +151,7 @@ class TestSafetyStaysOnTop:
         write(repo / "a", "changed\n")
         found = complete.candidates("git reset ", str(repo), curated=True)
         assert found[-1].value == "--hard"
-        assert "L2" in found[-1].meta
+        assert found[-1].level == risk.L2
 
     def test_state_rules_beat_habits(self, repo):
         use("git log", 100)
