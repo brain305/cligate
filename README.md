@@ -45,7 +45,7 @@ https://claude.ai/artifact/NtPzq6Cd3meWjb2aVKKMeJ
 | --- | --- | --- |
 | macOS | 지원 | GitHub Actions에서 설치, 판정, 터미널 동작 |
 | Ubuntu, RHEL 계열 | 지원 | GitHub Actions와 컨테이너에서 설치, 판정 |
-| WSL | 일부 확인 | WSL 1에서 설치와 판정만 확인. 터미널 화면, WSL 2, `/mnt/c` 속도는 미확인 |
+| WSL | 지원 | WSL 2(Ubuntu 26.04)에서 설치, 실행, 터미널 동작, 전체 테스트. WSL 1에서 설치와 판정. `/mnt/c` 속도는 미확인 |
 | Windows | 미지원 | 안내를 출력하고 종료합니다. WSL을 사용하세요 |
 
 ## 설치
@@ -56,7 +56,7 @@ Python 3.9 이상, git이 필요합니다.
 
 ```bash
 brew install pipx && pipx ensurepath                 # macOS
-sudo apt install pipx && pipx ensurepath             # Ubuntu, Debian, WSL
+sudo apt update && sudo apt install pipx && pipx ensurepath   # Ubuntu, Debian, WSL
 python3 -m ensurepip --user && python3 -m pip install --user pipx && python3 -m pipx ensurepath   # RHEL, Rocky
 ```
 
@@ -67,7 +67,7 @@ pipx install git+https://github.com/brain305/cligate.git
 cligate
 ```
 
-끝내려면 `exit`를 입력합니다. `cligate: command not found`가 나오면 터미널을 새로 열어보세요.
+끝내려면 `exit`를 입력합니다. `cligate: command not found`가 나오면 터미널을 새로 열어보세요. 설치된 버전은 `cligate --version`으로 확인합니다.
 
 **업데이트와 삭제**
 
@@ -83,12 +83,6 @@ pipx uninstall cligate
 ```bash
 pipx install --force git+https://github.com/brain305/cligate.git@v0.1.0
 ```
-
-일부 우분투 환경에서 pipx 설치가 안되는 경우 발생 -> 우분투의 패키지가 구형이어서 발생하는 문제이므로 패키지 업데이트가 필요합니다.
-```bash
-sudo apt update
-```
-
 
 ### v0.2.1 (2026-11-05)
 
