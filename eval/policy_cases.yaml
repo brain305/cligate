@@ -1,0 +1,208 @@
+# 팀 규칙(정책) 1단계의 측정 케이스. 기대값은 docs/policy.md 의 규칙에서 정했고, 판정을 돌려 맞추지 않았다.
+# policy 는 개인 규칙 파일(~/.config/cligate/policy.toml)에, project 는 저장소의 .cligate/policy.toml 에 쓴다.
+# trusted 가 true 면 프로젝트 규칙을 승인한 상태로 판정한다. rule 은 enforce 로 걸려야 하는 규칙 id 이다.
+
+policy_cases:
+- id: P01
+  state: "개인 규칙으로 terraform destroy 를 막음"
+  command: "terraform destroy"
+  setup: ""
+  policy: |
+    [[rule]]
+    id = "tf-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+    mode = "enforce"
+  expected: L3
+  rule: tf-destroy
+- id: P02
+  state: "같은 규칙인데 다른 하위 명령"
+  command: "terraform plan"
+  setup: ""
+  policy: |
+    [[rule]]
+    id = "tf-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+    mode = "enforce"
+  expected: L0
+  rule: null
+- id: P03
+  state: "sudo 안의 명령도 대조"
+  command: "sudo terraform destroy -auto-approve"
+  setup: ""
+  policy: |
+    [[rule]]
+    id = "tf-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+    mode = "enforce"
+  expected: L3
+  rule: tf-destroy
+- id: P04
+  state: "L1 규칙은 기본 판정 L3 를 낮추지 못함"
+  command: "rm -rf /"
+  setup: ""
+  policy: |
+    [[rule]]
+    id = "rm-note"
+    command = "rm"
+    level = 1
+    message = "알림만"
+    mode = "enforce"
+  expected: L3
+  rule: rm-note
+- id: P05
+  state: "경로 규칙. 폴더 자체도 해당"
+  command: "rm -rf /data"
+  setup: ""
+  policy: |
+    [[rule]]
+    id = "data"
+    command = "rm"
+    path = ["/data/**"]
+    level = 3
+    message = "운영 데이터"
+    mode = "enforce"
+  expected: L3
+  rule: data
+- id: P06
+  state: "이름만 비슷한 다른 경로"
+  command: "rm -rf /database"
+  setup: ""
+  policy: |
+    [[rule]]
+    id = "data"
+    command = "rm"
+    path = ["/data/**"]
+    level = 3
+    message = "운영 데이터"
+    mode = "enforce"
+  expected: L0
+  rule: null
+- id: P07
+  state: "관찰 모드는 등급을 바꾸지 않음"
+  command: "terraform destroy"
+  setup: ""
+  policy: |
+    [[rule]]
+    id = "tf-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+  expected: L0
+  rule: null
+- id: P08
+  state: "다른 브랜치에서 main 을 올림. 기본 판정 L2 를 규칙이 L3 로 올림"
+  command: "git push origin main"
+  setup: "on_feature"
+  policy: |
+    [[rule]]
+    id = "freeze"
+    command = "git push"
+    when = { branch = ["main"] }
+    level = 3
+    message = "배포 동결"
+    mode = "enforce"
+  expected: L3
+  rule: freeze
+- id: P09
+  state: "main 이 아닌 브랜치 push"
+  command: "git push origin feature/login"
+  setup: "on_feature"
+  policy: |
+    [[rule]]
+    id = "freeze"
+    command = "git push"
+    when = { branch = ["main"] }
+    level = 3
+    message = "배포 동결"
+    mode = "enforce"
+  expected: L0
+  rule: null
+- id: P10
+  state: "강제 푸시 조건. lease 도 강제 푸시로 봄"
+  command: "git push --force-with-lease"
+  setup: "on_feature"
+  policy: |
+    [[rule]]
+    id = "no-force"
+    command = "git push"
+    when = { forced = true }
+    level = 3
+    message = "강제 푸시 금지"
+    mode = "enforce"
+  expected: L3
+  rule: no-force
+- id: P11
+  state: "기한이 지난 규칙은 꺼짐"
+  command: "terraform destroy"
+  setup: ""
+  policy: |
+    [[rule]]
+    id = "tf-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+    mode = "enforce"
+    expires = "2020-01-01"
+  expected: L0
+  rule: null
+- id: P12
+  state: "틀린 파일은 통째로 무시"
+  command: "terraform destroy"
+  setup: ""
+  policy: |
+    [[rule]]
+    id = "tf-destroy"
+    command = "terraform destroy"
+    level = 0
+    message = "운영 인프라"
+    mode = "enforce"
+  expected: L0
+  rule: null
+- id: P13
+  state: "승인하지 않은 프로젝트 규칙"
+  command: "terraform destroy"
+  setup: ""
+  project: |
+    [[rule]]
+    id = "tf-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+    mode = "enforce"
+  trusted: false
+  expected: L0
+  rule: null
+- id: P14
+  state: "승인한 프로젝트 규칙"
+  command: "terraform destroy"
+  setup: ""
+  project: |
+    [[rule]]
+    id = "tf-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+    mode = "enforce"
+  trusted: true
+  expected: L3
+  rule: tf-destroy
+- id: P15
+  state: "파일 수 조건. 커밋된 로그 61개는 기본 L2, 규칙이 L3 로 올림"
+  command: "rm logs/*.log"
+  setup: "logs 60"
+  policy: |
+    [[rule]]
+    id = "many"
+    command = "rm"
+    when = { count = 50 }
+    level = 3
+    message = "한 번에 너무 많이 지움"
+    mode = "enforce"
+  expected: L3
+  rule: many
