@@ -53,9 +53,16 @@ def judge_one(case):
 
 def write_policies(case):
     """정책 케이스의 개인 규칙과 프로젝트 규칙을 임시 홈과 저장소에 둔다."""
-    if not case.get("policy") and not case.get("project"):
+    if not any(case.get(key) for key in ("policy", "project", "system")):
         return
     from cligate import policy
+    if case.get("system"):
+        path = Path(policy.system_dir(), "team.toml")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(case["system"], encoding="utf-8")
+        path.chmod(int(case.get("system_mode", "644"), 8))
+        for folder in (path.parent, path.parent.parent):
+            folder.chmod(0o755)
     if case.get("policy"):
         Path(policy.user_file()).parent.mkdir(parents=True, exist_ok=True)
         Path(policy.user_file()).write_text(case["policy"], encoding="utf-8")
@@ -88,7 +95,8 @@ def run_case(case):
         temp = os.path.realpath(temp)
         env = {k: v for k, v in os.environ.items()
                if k not in ("X", "BUILD", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "GIT_DIR", "GIT_WORK_TREE")}
-        env.update(HOME=temp, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+        env.update(HOME=temp, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0",
+                   CLIGATE_ETC_DIR=f"{temp}/etc", CLIGATE_LOG_DIR=f"{temp}/log")  # 실제 /etc 를 읽지 않는다
         Path(temp, ".zshrc").touch()
         script = f'set -e; source "{HERE / "fixture.sh"}"; make_fixture "{temp}/repo"; {case["setup"] or "true"}'
         os.mkdir(f"{temp}/repo")

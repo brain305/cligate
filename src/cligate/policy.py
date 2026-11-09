@@ -22,9 +22,12 @@ else:
 from . import APP_NAME, gitpush, paths, state, statusline
 from .risk import DEFAULT_WORD, Finding
 
-USER, PROJECT = "user", "project"
-SOURCE_LABEL = {PROJECT: "프로젝트 규칙", USER: "개인 규칙"}
+SYSTEM, PROJECT, USER = "system", "project", "user"
+SOURCE_LABEL = {SYSTEM: "팀 규칙", PROJECT: "프로젝트 규칙", USER: "개인 규칙"}
 PROJECT_FILE = os.path.join(".cligate", "policy.toml")
+# 시스템 정책과 서버 기록의 위치. 시험에서만 바꾼다. 바꾸면 그 사용자의 파일도 믿는데,
+# 사용자가 CliGate 를 쓰지 않는 것과 같은 수준이라 막지 않는다 (docs/policy.md 13절)
+ETC_ENV, LOG_ENV = "CLIGATE_ETC_DIR", "CLIGATE_LOG_DIR"
 ENFORCE, OBSERVE = "enforce", "observe"
 
 TOP_KEYS = {"policy", "audit", "rule"}
@@ -93,6 +96,50 @@ def user_file():
 def state_dir():
     base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
     return os.path.join(base, APP_NAME)
+
+
+def etc_dir():
+    return os.environ.get(ETC_ENV) or os.path.join("/etc", APP_NAME)
+
+
+def system_dir():
+    return os.path.join(etc_dir(), "policy.d")
+
+
+def log_dir():
+    return os.environ.get(LOG_ENV) or os.path.join("/var/log", APP_NAME)
+
+
+def system_files():
+    try:
+        names = sorted(n for n in os.listdir(system_dir()) if n.endswith(".toml"))
+    except OSError:
+        return []
+    return [os.path.join(system_dir(), n) for n in names]
+
+
+def unsafe_reason(path):
+    """시스템 파일과 그 위 폴더가 root 소유이고 다른 사람이 쓸 수 없으면 None, 아니면 이유.
+
+    sudo 가 sudoers 를 확인하는 것과 같은 방식이다. 다른 사람이 바꿀 수 있는 정책은 쓰지 않는다.
+    """
+    owners = {0} | ({os.getuid()} if os.environ.get(ETC_ENV) else set())
+    top = os.path.abspath(etc_dir())
+    current = os.path.abspath(path)
+    try:
+        if os.path.islink(current):
+            return f"링크입니다: {current}"
+        while True:
+            info = os.stat(current)
+            if info.st_uid not in owners:
+                return f"root 소유가 아닙니다: {current}"
+            if info.st_mode & 0o022:
+                return f"다른 사람이 쓸 수 있습니다: {current}"
+            if current == top or os.path.dirname(current) == current:
+                return None
+            current = os.path.dirname(current)
+    except OSError as e:
+        return f"확인하지 못했습니다: {e.strerror}"
 
 
 def project_file(cwd):
@@ -167,7 +214,9 @@ def validate(data, source, path, today=None, strict=False):
 
 
 def _default_name(path, source):
-    """이름이 없으면 개인 규칙은 personal, 프로젝트 규칙은 저장소 폴더 이름을 쓴다."""
+    """이름이 없으면 팀 규칙은 파일 이름, 개인 규칙은 personal, 프로젝트 규칙은 저장소 폴더 이름을 쓴다."""
+    if source == SYSTEM:
+        return os.path.splitext(os.path.basename(path))[0]
     if source == PROJECT:
         return os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(path)))) or "project"
     return "personal"
@@ -285,8 +334,12 @@ def _tests(tests, problems):
 # ── 적용 ──────────────────────────────────────────────────────────────
 
 def policies(cwd):
-    """지금 폴더에 적용되는 정책들. 우선순위가 높은 것(프로젝트)부터. 승인 안 된 것과 오류가 있는 것도 담는다."""
+    """지금 폴더에 적용되는 정책들. 우선순위가 높은 것(팀, 프로젝트, 개인)부터. 쓰지 않는 것도 담는다."""
     found = []
+    for path in system_files():
+        reason = unsafe_reason(path)
+        found.append(Policy(path, SYSTEM, errors=[f"권한이 안전하지 않아 쓰지 않습니다. {reason}"])
+                     if reason else _cached(path, SYSTEM))
     for path, source in ((project_file(cwd), PROJECT), (user_file(), USER)):
         if path and os.path.isfile(path):
             found.append(_cached(path, source))

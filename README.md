@@ -154,7 +154,7 @@ CliGate는 **실수를 줄이는 도구이지 보안 도구가 아닙니다.** �
 
 ## 팀 규칙
 
-CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막을 수 있습니다. 규칙은 등급을 올리기만 하고, 기본 판정보다 낮출 수 없습니다. 설계는 [docs/policy.md](docs/policy.md)에 있고, 지금은 1단계(개인 규칙과 프로젝트 규칙)까지 만들었습니다.
+CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막을 수 있습니다. 규칙은 등급을 올리기만 하고, 기본 판정보다 낮출 수 없습니다. 설계는 [docs/policy.md](docs/policy.md)에 있고, 지금은 2단계(팀 규칙 배포)까지 만들었습니다.
 
 ```bash
 cligate policy add --command "terraform destroy" --level 3 --message "운영 인프라를 지웁니다"
@@ -165,10 +165,27 @@ cligate policy remove terraform-destroy-1
 
 | 규칙 파일 | 위치 | 켜지는 조건 |
 | --- | --- | --- |
-| 개인 규칙 | `~/.config/cligate/policy.toml` | 항상 |
+| 팀 규칙 | `/etc/cligate/policy.d/*.toml` | 파일과 그 위 폴더가 root 소유이고 다른 사람이 쓸 수 없을 때 |
 | 프로젝트 규칙 | 저장소의 `.cligate/policy.toml` | `cligate policy trust`로 승인했을 때. 파일이 바뀌면 다시 승인 |
+| 개인 규칙 | `~/.config/cligate/policy.toml` | 항상 |
 
-파일에 직접 쓴 규칙은 `mode = "enforce"`가 없으면 관찰 모드로 시작합니다. 화면은 그대로 두고 걸린 사실만 `~/.local/state/cligate/observe.jsonl`에 남기며, `cligate policy hits`로 규칙별 횟수를 봅니다. 규칙 파일은 `cligate policy check`로 검사하고, 규칙 안의 `tests`는 `cligate policy test`로 돌립니다.
+파일에 직접 쓴 규칙은 `mode = "enforce"`가 없으면 관찰 모드로 시작합니다. 화면은 그대로 두고 걸린 사실만 기록하며, `cligate policy hits`로 규칙별 횟수를 봅니다. 규칙 파일은 `cligate policy check`로 검사하고, 규칙 안의 `tests`는 `cligate policy test`로 돌립니다.
+
+**팀 규칙 배포:** 사내 정책 저장소 주소를 `/etc/cligate/config.toml`에 적고, 각 서버에서 받습니다.
+
+```toml
+# /etc/cligate/config.toml   (root 소유, 다른 사람은 쓸 수 없게)
+[sync]
+repo = "git@git.corp:security/cligate-policies.git"
+```
+
+```bash
+sudo cligate policy sync                      # 검사를 통과하고 버전이 커진 파일만 반영
+cligate policy show --previous                # 직전 버전
+cligate policy hits logs/*.jsonl --since 7d   # 여러 서버의 관찰 기록을 모아 합산
+```
+
+팀 규칙의 관찰 기록은 `/var/log/cligate/observe-사용자.jsonl`에 남습니다.
 
 ## 시연과 시험
 

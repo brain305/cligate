@@ -13,7 +13,7 @@ else:
 
 from prompt_toolkit.utils import get_cwidth
 
-from . import APP_NAME, audit, gate, parse, policy, shell
+from . import APP_NAME, audit, gate, parse, policy, shell, sync
 from .policy import ENFORCE, OBSERVE, PROJECT, USER
 
 NEW_FILE_HEAD = '[policy]\nname = "개인 규칙"\nversion = 1\n'
@@ -41,7 +41,9 @@ def main(argv):
     remove.add_argument("rule_id")
     remove.add_argument("--yes", action="store_true")
 
-    sub.add_parser("show", help="지금 폴더에 적용되는 규칙")
+    show = sub.add_parser("show", help="지금 폴더에 적용되는 규칙")
+    show.add_argument("--previous", action="store_true", help="sync 가 보관한 직전 버전")
+    sub.add_parser("sync", help="사내 정책 저장소에서 팀 규칙을 받아 반영 (root)")
     check = sub.add_parser("check", help="규칙 파일 검사")
     check.add_argument("files", nargs="+")
     test = sub.add_parser("test", help="규칙의 tests 실행")
@@ -86,6 +88,11 @@ def cmd_check(args):
     failed = False
     for path in args.files:
         loaded = policy.load(path, USER, strict=True)
+        installed = os.path.join(policy.system_dir(), os.path.basename(path))
+        if os.path.exists(installed) and os.path.abspath(installed) != os.path.abspath(path):
+            current = policy.load(installed, policy.SYSTEM)
+            if current.digest != loaded.digest and loaded.version <= current.version:
+                loaded.errors.append(f"version 이 이 서버에 적용 중인 v{current.version} 보다 커야 합니다")
         if loaded.errors:
             failed = True
             print(f"{path}: 규칙 {len(loaded.rules)}개, 오류 {len(loaded.errors)}")
@@ -152,13 +159,23 @@ def _pad(text, width):
 
 
 def cmd_show(args):
+    if args.previous:
+        kept = sync.previous_versions()
+        if not kept:
+            print("보관한 직전 버전이 없습니다")
+        for name, loaded in kept:
+            print(f"{name}  v{loaded.version}  규칙 {len(loaded.rules)}개")
+            for rule in loaded.rules:
+                print(f"  {rule.id}  {rule.mode}  {_level(rule)}  {' '.join(rule.command)}")
+        return 0
     found = policy.policies(os.getcwd())
     if not found:
         print(f"적용 중인 규칙이 없습니다. 개인 규칙은 {_short(policy.user_file())} 에 둡니다")
         return 0
     for loaded in found:
         if loaded.errors:
-            status = f"오류 {len(loaded.errors)}개로 쓰지 않음. policy check 로 확인하세요"
+            more = f" 외 {len(loaded.errors) - 1}개. policy check 로 확인하세요" if len(loaded.errors) > 1 else ""
+            status = f"쓰지 않음: {loaded.errors[0]}{more}"
         elif not loaded.trusted:
             status = "승인 전이라 쓰지 않음. policy trust 로 승인하세요"
         else:
@@ -332,7 +349,7 @@ def cmd_hits(args):
     except ValueError:
         print("--since 는 7d, 24h, 30m 처럼 씁니다")
         return 1
-    files = args.files or [audit.observe_path()]
+    files = args.files or audit.default_files()
     summary = audit.summarize(files, since=since, rule=args.rule, by=args.by)
     period = f"{summary.first[5:10]} ~ {summary.last[5:10]}" if summary.first else "기록 없음"
     print(f"기간 {period}   파일 {summary.files}개   기록 {summary.lines:,}줄   "
@@ -392,7 +409,16 @@ def cmd_trust(args):
     return 0
 
 
+def cmd_sync(args):
+    try:
+        return sync.sync()
+    except sync.SyncError as e:
+        print(e)
+        return 1
+
+
 COMMANDS = {
+    "sync": cmd_sync,
     "add": cmd_add, "remove": cmd_remove, "show": cmd_show, "check": cmd_check, "test": cmd_test,
     "explain": cmd_explain, "hits": cmd_hits, "trust": cmd_trust,
 }

@@ -20,13 +20,44 @@ PASSED, CANCELLED = "passed", "cancelled"
 
 
 def observe_path():
+    """개인 규칙과 프로젝트 규칙의 관찰 기록."""
     return os.path.join(policy.state_dir(), "observe.jsonl")
 
 
+def server_observe_path():
+    """팀 규칙의 관찰 기록. 사용자마다 파일이 따로라 남의 기록을 고칠 수 없다 (폴더 권한 1733)."""
+    return os.path.join(policy.log_dir(), f"observe-{getpass.getuser()}.jsonl")
+
+
+def default_files():
+    """policy hits 가 파일 없이 불렸을 때 읽는 기록. 관리자는 서버의 모든 사용자 기록을 읽는다."""
+    try:
+        server = sorted(os.path.join(policy.log_dir(), n) for n in os.listdir(policy.log_dir())
+                        if n.startswith("observe-") and n.endswith(".jsonl"))
+    except OSError:
+        server = []
+    return [observe_path(), *server]
+
+
 def record_observed(rules, cwd, result, path=None):
-    """observe 로 걸린 규칙들을 기록한다. 기록에 실패해도 셸은 계속 동작해야 한다."""
+    """observe 로 걸린 규칙들을 기록한다. 기록에 실패해도 셸은 계속 동작해야 한다.
+
+    팀 규칙은 서버 기록에 남긴다. 서버 기록에 쓸 수 없으면 잃지 않도록 사용자 기록에 남긴다.
+    """
     if not rules:
         return
+    if path is not None:
+        _append(path, _lines(rules, cwd, result))
+        return
+    team = [r for r in rules if r.source == policy.SYSTEM]
+    others = [r for r in rules if r.source != policy.SYSTEM]
+    if team and not _append(server_observe_path(), _lines(team, cwd, result)):
+        others = team + others
+    if others:
+        _append(observe_path(), _lines(others, cwd, result))
+
+
+def _lines(rules, cwd, result):
     host = socket.gethostname().split(".")[0]
     now = datetime.datetime.now().astimezone()
     lines = []
@@ -46,14 +77,18 @@ def record_observed(rules, cwd, result, path=None):
             "command": " ".join(rule.command),
             "result": result,
         }, ensure_ascii=False))
-    path = path or observe_path()
+    return lines
+
+
+def _append(path, lines):
     try:
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8") as f:
             f.write("".join(line + "\n" for line in lines))
+        return True
     except OSError:
-        pass
+        return False
 
 
 @dataclass

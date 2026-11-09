@@ -384,3 +384,163 @@ class TestEndToEnd:
                                 cwd=repo, capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
         assert result.returncode == 0
         assert "적용 중인 규칙이 없습니다" in result.stdout
+
+
+class TestSystem:
+    """팀 규칙. 시험에서는 CLIGATE_ETC_DIR 로 /etc/cligate 대신 임시 폴더를 쓴다 (conftest)."""
+
+    def install(self, name, text):
+        path = __import__("pathlib").Path(policy.system_dir()) / name
+        write(path, text)
+        path.chmod(0o644)
+        for folder in (path.parent, path.parent.parent):
+            folder.chmod(0o755)
+        return path
+
+    def test_system_rule_applies_first(self, repo):
+        self.install("team.toml", rule(word="team"))
+        user_rules(rule(word="personal"))
+        verdict = judge("touch x")
+        assert verdict.level == L3 and verdict.word == "team"
+        assert "팀 규칙 r1" in verdict.findings[0].message
+
+    @pytest.mark.parametrize("target", ["file", "dir"])
+    def test_writable_by_others_is_ignored(self, repo, target, capsys):
+        path = self.install("team.toml", rule())
+        (path if target == "file" else path.parent).chmod(0o666 if target == "file" else 0o777)
+        assert level("touch x") == L0
+        cmd("show")
+        assert "다른 사람이 쓸 수 있습니다" in capsys.readouterr().out
+
+    def test_symlink_is_ignored(self, repo, tmp_path):
+        real = tmp_path / "elsewhere.toml"
+        write(real, rule())
+        self.install("keep.toml", rule(id="keep", command="mkdir", level=2))
+        link = __import__("pathlib").Path(policy.system_dir()) / "link.toml"
+        link.symlink_to(real)
+        assert level("touch x") == L0
+        assert level("mkdir y") == L2
+
+    def test_owner_must_be_root_without_override(self, monkeypatch, tmp_path):
+        path = self.install("team.toml", rule())
+        monkeypatch.delenv(policy.ETC_ENV)
+        monkeypatch.setattr(policy, "etc_dir", lambda: str(path.parent.parent))
+        assert "root 소유가 아닙니다" in policy.unsafe_reason(str(path))
+
+    def test_observe_goes_to_server_log_per_user(self, repo):
+        self.install("team.toml", rule(mode="observe"))
+        user_rules(rule(id="mine", mode="observe"))
+        audit.record_observed(judge("touch x").observed, str(repo), audit.PASSED)
+        server = open(audit.server_observe_path(), encoding="utf-8").read()
+        personal = open(audit.observe_path(), encoding="utf-8").read()
+        assert '"source": "system"' in server and '"mine"' not in server
+        assert '"mine"' in personal
+        assert audit.server_observe_path() in audit.default_files()
+
+    def test_server_log_falls_back_to_personal(self, repo, monkeypatch, tmp_path):
+        self.install("team.toml", rule(mode="observe"))
+        blocked = tmp_path / "not-a-dir"
+        blocked.write_text("")
+        monkeypatch.setenv(policy.LOG_ENV, str(blocked))
+        audit.record_observed(judge("touch x").observed, str(repo), audit.PASSED)
+        assert '"source": "system"' in open(audit.observe_path(), encoding="utf-8").read()
+
+    def test_check_refuses_version_not_above_installed(self, repo, tmp_path, capsys):
+        self.install("team.toml", "[policy]\nversion = 5\n" + rule())
+        lower = tmp_path / "team.toml"
+        write(lower, "[policy]\nversion = 5\n" + rule(level=2))
+        assert cmd("check", str(lower)) == 1
+        assert "v5 보다 커야" in capsys.readouterr().out
+        write(lower, "[policy]\nversion = 6\n" + rule(level=2))
+        assert cmd("check", str(lower)) == 0
+
+
+class TestSync:
+    def setup_repo(self, tmp_path, files):
+        repo = tmp_path / "policies"
+        repo.mkdir()
+        git("init", "-q", "-b", "main", cwd=repo)
+        self.commit(repo, files)
+        etc = __import__("pathlib").Path(policy.etc_dir())
+        write(etc / "config.toml", f'[sync]\nrepo = "{repo}"\n')
+        (etc / "config.toml").chmod(0o644)
+        etc.chmod(0o755)
+        return repo
+
+    def commit(self, repo, files):
+        for name, text in files.items():
+            if text is None:
+                (repo / name).unlink()
+            else:
+                write(repo / name, text)
+        git("add", "-A", cwd=repo)
+        git("commit", "-qm", "정책", "--allow-empty", cwd=repo)
+
+    def installed(self):
+        return sorted(p for p in __import__("os").listdir(policy.system_dir()))
+
+    def test_first_sync_installs_and_applies(self, tmp_path, repo, capsys):
+        self.setup_repo(tmp_path, {"team.toml": "[policy]\nversion = 1\n" + rule()})
+        assert cmd("sync") == 0
+        assert self.installed() == ["team.toml"]
+        assert level("touch x") == L3
+        assert "추가" in capsys.readouterr().out
+
+    def test_version_must_grow(self, tmp_path, repo, capsys):
+        policies = self.setup_repo(tmp_path, {"team.toml": "[policy]\nversion = 1\n" + rule()})
+        cmd("sync")
+        self.commit(policies, {"team.toml": "[policy]\nversion = 1\n" + rule(level=2)})
+        assert cmd("sync") == 1
+        assert level("touch x") == L3  # 그대로
+        self.commit(policies, {"team.toml": "[policy]\nversion = 2\n" + rule(level=2)})
+        assert cmd("sync") == 0
+        assert level("touch x") == L2
+        capsys.readouterr()
+        cmd("show", "--previous")
+        assert "team.toml  v1" in capsys.readouterr().out
+
+    def test_broken_file_skipped_others_applied(self, tmp_path, repo):
+        self.setup_repo(tmp_path, {"bad.toml": rule(level=0), "good.toml": rule(id="g", command="mkdir", level=2)})
+        assert cmd("sync") == 1
+        assert self.installed() == ["good.toml"]
+
+    def test_expired_rule_refuses_file(self, tmp_path, repo):
+        self.setup_repo(tmp_path, {"team.toml": rule(expires="2020-01-01")})
+        assert cmd("sync") == 1
+        assert self.installed() == []
+
+    def test_removed_from_repo_is_removed_but_manual_files_stay(self, tmp_path, repo):
+        policies = self.setup_repo(tmp_path, {"a.toml": rule(), "b.toml": rule(command="mkdir")})
+        cmd("sync")
+        write(__import__("pathlib").Path(policy.system_dir()) / "manual.toml", rule(command="ls"))
+        self.commit(policies, {"b.toml": None})
+        cmd("sync")
+        assert self.installed() == ["a.toml", "manual.toml"]
+
+    def test_creates_server_log_folder(self, tmp_path, repo):
+        self.setup_repo(tmp_path, {"a.toml": rule()})
+        cmd("sync")
+        assert oct(__import__("os").stat(policy.log_dir()).st_mode & 0o7777) == oct(0o1733)
+
+    def test_needs_config(self, repo, capsys):
+        assert cmd("sync") == 1
+        assert "config.toml" in capsys.readouterr().out
+
+    def test_unsafe_config_refused(self, tmp_path, repo, capsys):
+        self.setup_repo(tmp_path, {"a.toml": rule()})
+        (__import__("pathlib").Path(policy.etc_dir()) / "config.toml").chmod(0o666)
+        assert cmd("sync") == 1
+        assert "안전하지 않습니다" in capsys.readouterr().out
+
+    def test_unreachable_repo(self, tmp_path, repo, capsys):
+        self.setup_repo(tmp_path, {"a.toml": rule()})
+        write(__import__("pathlib").Path(policy.etc_dir()) / "config.toml", '[sync]\nrepo = "/nowhere/x.git"\n')
+        assert cmd("sync") == 1
+        assert "받지 못했습니다" in capsys.readouterr().out
+
+    def test_needs_root_without_override(self, tmp_path, repo, monkeypatch, capsys):
+        self.setup_repo(tmp_path, {"a.toml": rule()})
+        monkeypatch.delenv(policy.ETC_ENV)
+        monkeypatch.setattr(__import__("os"), "geteuid", lambda: 1000)
+        assert cmd("sync") == 1
+        assert "root 권한" in capsys.readouterr().out
