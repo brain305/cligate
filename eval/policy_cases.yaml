@@ -206,3 +206,46 @@ policy_cases:
     mode = "enforce"
   expected: L3
   rule: many
+
+# 2단계: 팀 규칙. system 은 /etc/cligate/policy.d/team.toml 에 쓰고, system_mode 는 그 파일의 권한이다.
+- id: P16
+  state: "팀 규칙으로 terraform destroy 를 막음"
+  command: "terraform destroy"
+  setup: ""
+  system: |
+    [policy]
+    version = 1
+    [[rule]]
+    id = "team-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+    mode = "enforce"
+  expected: L3
+  rule: team-destroy
+- id: P17
+  state: "다른 사람이 쓸 수 있는 팀 규칙 파일은 무시"
+  command: "terraform destroy"
+  setup: ""
+  system: |
+    [[rule]]
+    id = "team-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+    mode = "enforce"
+  system_mode: "666"
+  expected: L0
+  rule: null
+- id: P18
+  state: "관찰 모드 팀 규칙은 등급을 바꾸지 않음"
+  command: "terraform destroy"
+  setup: ""
+  system: |
+    [[rule]]
+    id = "team-destroy"
+    command = "terraform destroy"
+    level = 3
+    message = "운영 인프라"
+  expected: L0
+  rule: null
