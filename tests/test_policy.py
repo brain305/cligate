@@ -544,3 +544,152 @@ class TestSync:
         monkeypatch.setattr(__import__("os"), "geteuid", lambda: 1000)
         assert cmd("sync") == 1
         assert "root 권한" in capsys.readouterr().out
+
+
+class TestAudit:
+    def team(self, audit_table="[audit]\nmin_level = 2\n", **fields):
+        path = __import__("pathlib").Path(policy.system_dir()) / "team.toml"
+        write(path, audit_table + rule(**fields))
+        path.chmod(0o644)
+        for folder in (path.parent, path.parent.parent):
+            folder.chmod(0o755)
+
+    def events(self):
+        path = audit.audit_path()
+        return [json.loads(line) for line in open(path, encoding="utf-8")] if __import__("os").path.exists(path) else []
+
+    def decide(self, line, reply=None, cwd="."):
+        from cligate import parse
+        commands = parse.parse(line)
+        verdict = gate.check(commands)
+        return audit.record_decision(verdict, line, commands, cwd, audit.result_of(verdict, reply))
+
+    def test_off_without_team_audit_table(self, repo):
+        user_rules("[audit]\nmin_level = 1\n" + rule())  # 개인 규칙으로는 켤 수 없다
+        assert not self.decide("touch x", "delete")
+        assert self.events() == []
+
+    def test_records_l2_and_above_only(self, repo):
+        self.team(command="mkdir", level=1)
+        write(repo / "new.txt")
+        self.decide("rm new.txt", "y")
+        self.decide("rm a")  # 커밋된 파일은 L1
+        self.decide("ls")
+        assert [(e["level"], e["result"], e["command"]) for e in self.events()] == [(2, "approved", "rm")]
+
+    def test_min_level_three(self, repo):
+        self.team("[audit]\nmin_level = 3\n", command="mkdir", level=1)
+        write(repo / "new.txt")
+        self.decide("rm new.txt", "y")
+        self.decide("rm -rf /", "delete")
+        assert [e["level"] for e in self.events()] == [3]
+
+    def test_team_rule_hit_recorded_regardless_of_level(self, repo):
+        self.team(command="touch", level=1)
+        self.decide("touch x")
+        assert self.events()[0]["rules"] == ["system/team/r1"]
+
+    def test_unverified_recorded_even_at_l1(self, repo):
+        self.team(command="mkdir", level=1)
+        self.decide("$(echo ls) -a")
+        assert self.events()[0]["unverified"] is True
+
+    @pytest.mark.parametrize("line", ["rm $X", "$(echo ls) -a", "cp a $Y"])
+    def test_unverified_phrases_are_recognized(self, repo, line):
+        assert any(audit.unverified(f) for f in judge(line).findings)
+
+    @pytest.mark.parametrize("reply, level_, result", [
+        ("y", 2, "approved"), ("Y", 2, "approved"), ("", 2, "cancelled"), ("n", 2, "cancelled"),
+        ("delete", 3, "approved"), ("", 3, "cancelled"), ("del", 3, "wrong_word"), (None, 1, "passed"),
+    ])
+    def test_result_of(self, reply, level_, result):
+        from cligate.risk import Finding, Verdict
+        assert audit.result_of(Verdict([Finding(level_, "m")]), reply) == result
+
+    def test_arguments_only_with_full_command(self, repo):
+        self.team(command="touch", level=2)
+        self.decide("touch secret-123", "y")
+        assert "secret-123" not in json.dumps(self.events())
+        self.team("[audit]\nfull_command = true\n", command="touch", level=2)
+        self.decide("touch secret-123", "y")
+        assert self.events()[-1]["command"] == "touch secret-123"
+
+    def test_strictest_settings_win(self, repo):
+        self.team("[audit]\nmin_level = 3\n", command="mkdir", level=1)
+        other = __import__("pathlib").Path(policy.system_dir()) / "other.toml"
+        write(other, "[audit]\nmin_level = 2\n" + rule(id="o", command="ls", level=1))
+        other.chmod(0o644)
+        assert audit.settings(".").min_level == 2
+
+    def test_bad_audit_table_is_an_error(self, tmp_path):
+        path = tmp_path / "p.toml"
+        write(path, "[audit]\nmin_level = 5\npolicy_hits = 1\n" + rule())
+        errors = policy.load(str(path), policy.SYSTEM).errors
+        assert any("min_level" in e for e in errors) and any("policy_hits" in e for e in errors)
+
+    def test_falls_back_to_personal_file(self, repo, monkeypatch, tmp_path):
+        self.team(command="touch", level=2)
+        blocked = tmp_path / "not-a-dir"
+        blocked.write_text("")
+        monkeypatch.setenv(policy.LOG_ENV, str(blocked))
+        self.team(command="touch", level=2)
+        self.decide("touch x", "y")
+        assert "touch" in open(audit.personal_audit_path(), encoding="utf-8").read()
+
+    def test_end_to_end_records_decisions(self, repo):
+        self.team(command="touch", level=3, word="go")
+        write(repo / "new.txt")
+        run = lambda lines: subprocess.run([sys.executable, "-c", "from cligate.cli import main; main()"],  # noqa: E731
+                                           input="\n".join([*lines, ""]), cwd=repo, capture_output=True,
+                                           text=True, timeout=30)
+        run(["touch z", "nope", "rm new.txt", "", "touch z", "go", "exit"])
+        assert [(e["level"], e["result"]) for e in self.events()] == [(3, "wrong_word"), (2, "cancelled"), (3, "approved")]
+        assert (repo / "z").exists() and (repo / "new.txt").exists()
+
+
+class TestAuditReport:
+    def write(self, path, events):
+        path.write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+
+    def event(self, id, level, result, command="rm", kind="command", rules=(), host="web1", **extra):
+        now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        return {"id": id, "kind": kind, "time": now, "host": host, "user": "kim", "level": level,
+                "command": command, "result": result, "rules": list(rules), "unverified": False, **extra}
+
+    def test_counts_and_stopped_rate(self, tmp_path):
+        path = tmp_path / "a.jsonl"
+        self.write(path, [self.event("1", 3, "cancelled"), self.event("2", 3, "approved"), self.event("3", 2, "wrong_word"),
+                          self.event("4", 2, "approved", rules=["system/team/x"]),
+                          self.event("5", 0, "added", command="policy sync", kind="policy_change", file="t.toml",
+                                     action="added", after=1)])
+        summary = audit.summarize_audit([str(path)])
+        assert audit.stopped_rate(summary.levels[3]) == 0.5
+        assert summary.rules["system/team/x"]["approved"] == 1
+        assert summary.changes[0]["file"] == "t.toml"
+
+    def test_observe_and_audit_files_do_not_mix(self, tmp_path):
+        path = tmp_path / "a.jsonl"
+        self.write(path, [self.event("1", 3, "cancelled"),
+                          {"id": "o", "time": self.event("x", 0, "")["time"], "host": "h", "policy": "p",
+                           "version": 1, "rule": "r", "mode": "observe", "result": "passed"}])
+        assert sum(sum(c.values()) for c in audit.summarize_audit([str(path)]).levels.values()) == 1
+        assert list(audit.summarize([str(path)]).rows) == [("p", 1, "r")]
+
+    def test_report_command(self, tmp_path, capsys):
+        path = tmp_path / "a.jsonl"
+        self.write(path, [self.event("1", 3, "cancelled", host="web1"), self.event("2", 2, "approved", host="web2")])
+        assert policycmd.audit_main(["report", str(path), "--by-host", "--since", "all"]) == 0
+        out = capsys.readouterr().out
+        assert "등급별" in out and "web2" in out and "100%" in out
+
+
+class TestSyncAudit:
+    def test_policy_changes_are_recorded(self, tmp_path, repo):
+        sync_tests = TestSync()
+        policies = sync_tests.setup_repo(tmp_path, {"team.toml": "[policy]\nversion = 1\n" + rule()})
+        cmd("sync")
+        sync_tests.commit(policies, {"team.toml": "[policy]\nversion = 1\n" + rule(level=2)})
+        cmd("sync")
+        events = [json.loads(line) for line in open(audit.audit_path(), encoding="utf-8")]
+        assert [e["action"] for e in events] == ["added", "refused"]
+        assert events[1]["reason"] == "버전이 커지지 않음"

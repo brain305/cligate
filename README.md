@@ -154,7 +154,7 @@ CliGate는 **실수를 줄이는 도구이지 보안 도구가 아닙니다.** �
 
 ## 팀 규칙
 
-CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막을 수 있습니다. 규칙은 등급을 올리기만 하고, 기본 판정보다 낮출 수 없습니다. 설계는 [docs/policy.md](docs/policy.md)에 있고, 지금은 2단계(팀 규칙 배포)까지 만들었습니다.
+CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막을 수 있습니다. 규칙은 등급을 올리기만 하고, 기본 판정보다 낮출 수 없습니다. 설계는 [docs/policy.md](docs/policy.md)에 있고, 지금은 3단계(감사 기록)까지 만들었습니다.
 
 ```bash
 cligate policy add --command "terraform destroy" --level 3 --message "운영 인프라를 지웁니다"
@@ -186,6 +186,21 @@ cligate policy hits logs/*.jsonl --since 7d   # 여러 서버의 관찰 기록�
 ```
 
 팀 규칙의 관찰 기록은 `/var/log/cligate/observe-사용자.jsonl`에 남습니다.
+
+**감사 기록:** 팀 규칙 파일에 `[audit]`가 있으면 켜집니다. 확인 화면이 뜬 명령(L2 이상)의 승인과 취소, 팀 규칙에 걸린 명령, 판정을 끝내지 못한 명령, `sync`의 정책 변경을 `/var/log/cligate/audit-사용자.jsonl`에 남깁니다. 명령은 이름과 옵션만 남기고, 인자는 `full_command = true`일 때만 남깁니다.
+
+```toml
+[audit]
+min_level = 2          # 1이면 알림(L1)까지, 3이면 차단(L3)만
+policy_hits = true     # 팀 규칙에 걸린 명령은 등급과 관계없이
+full_command = false
+```
+
+```bash
+cligate audit report --since 7d --by-user     # 등급별, 규칙별, 명령별 승인·취소와 멈춘 비율, 정책 변경
+```
+
+`/etc/cligate/config.toml`에 `[audit] syslog = true`를 적으면 이 컴퓨터의 syslog로도 보냅니다.
 
 ## 시연과 시험
 

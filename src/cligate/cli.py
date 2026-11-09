@@ -12,9 +12,9 @@ def main():
     if sys.argv[1:] == ["--version"]:
         print(f"{APP_NAME} {__version__}")
         return
-    if sys.argv[1:2] == ["policy"]:
+    if sys.argv[1:2] in (["policy"], ["audit"]):
         from . import policycmd
-        sys.exit(policycmd.main(sys.argv[2:]))
+        sys.exit((policycmd.main if sys.argv[1] == "policy" else policycmd.audit_main)(sys.argv[2:]))
     if sys.platform == "win32":
         # /bin/sh 로 실행하는 구조라 명령을 입력하는 순간 오류로 끝난다. 설치는 되므로 처음에 알린다
         sys.stdout.reconfigure(errors="replace")
@@ -62,24 +62,23 @@ def main():
 
             # 5.확인
             # y 는 습관적으로 누를 수 있어서, 가장 위험한 경우는 단어를 직접 치게 한다
+            reply = None
             if verdict.level == risk.L3:
                 reply = screen.ask(f"진행하려면 {verdict.word} 입력").strip()
                 ui.answer(reply)
-                if reply != verdict.word:
-                    ui.notice("취소했습니다. 아무것도 실행하지 않았습니다")
-                    audit.record_observed(verdict.observed, os.getcwd(), audit.CANCELLED)
-                    continue
             elif verdict.level == risk.L2:
                 reply = screen.ask("실행할까요? (y/N)").strip()
                 ui.answer(reply)
-                if reply.lower() != "y":
-                    ui.notice("취소했습니다. 아무것도 실행하지 않았습니다")
-                    audit.record_observed(verdict.observed, os.getcwd(), audit.CANCELLED)
-                    continue
+            result = audit.result_of(verdict, reply)
+            # 관찰 모드 규칙과 감사 대상은 실행 전 폴더 기준으로 남긴다. 기록에 실패해도 실행에는 영향이 없다
+            audit.record_observed(verdict.observed, os.getcwd(), audit.CANCELLED if result in (
+                audit.CANCELLED, audit.WRONG_WORD) else audit.PASSED)
+            audit.record_decision(verdict, line, commands, os.getcwd(), result)
+            if result in (audit.CANCELLED, audit.WRONG_WORD):
+                ui.notice("취소했습니다. 아무것도 실행하지 않았습니다")
+                continue
 
             # 6. 실행 - 입력 내용을 쉘에 그대로 넣는 입력
-            # 관찰 모드 규칙은 화면에 알리지 않고, 걸린 사실만 실행 전 폴더 기준으로 남긴다
-            audit.record_observed(verdict.observed, os.getcwd(), audit.PASSED)
             monitor.pause()
             try:
                 code = runner.run(line)

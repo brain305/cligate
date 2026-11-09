@@ -15,7 +15,7 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
-from . import policy
+from . import audit, policy
 
 CLONE_SECONDS = 60
 SYNC_KEYS = {"repo", "branch", "dir"}
@@ -77,10 +77,10 @@ def sync(say=print):
         if not source.startswith(checkout) or not os.path.isdir(source):
             raise SyncError(f"저장소에 {folder} 폴더가 없습니다")
         say(f"받음  {repo}  {commit}")
-        return _apply(source, say)
+        return _apply(source, say, commit)
 
 
-def _apply(source, say):
+def _apply(source, say, commit=""):
     for folder, mode in ((policy.etc_dir(), 0o755), (policy.system_dir(), 0o755), (previous_dir(), 0o755)):
         os.makedirs(folder, mode=mode, exist_ok=True)
     _ensure_log_dir()
@@ -94,6 +94,7 @@ def _apply(source, say):
         if loaded.errors:
             refused += 1
             say(f"건너뜀  {name}  오류 {len(loaded.errors)}개: {loaded.errors[0]}")
+            audit.record_policy_change("refused", name, after=loaded.version, commit=commit, reason=loaded.errors[0])
             continue
         if os.path.exists(target):
             current = policy.load(target, policy.SYSTEM)
@@ -103,18 +104,23 @@ def _apply(source, say):
             if loaded.version <= current.version:
                 refused += 1
                 say(f"건너뜀  {name}  v{loaded.version} 이 적용 중인 v{current.version} 보다 크지 않습니다")
+                audit.record_policy_change("refused", name, current.version, loaded.version, commit, "버전이 커지지 않음")
                 continue
             shutil.copy2(target, os.path.join(previous_dir(), name))
             say(f"바꿈    {name}  v{current.version} → v{loaded.version}  규칙 {len(loaded.rules)}개")
+            audit.record_policy_change("changed", name, current.version, loaded.version, commit)
         else:
             say(f"추가    {name}  v{loaded.version}  규칙 {len(loaded.rules)}개")
+            audit.record_policy_change("added", name, after=loaded.version, commit=commit)
         _install(new, target)
         synced.add(name)
     for name in sorted(synced - set(names)):
         target = os.path.join(policy.system_dir(), name)
         if os.path.exists(target):
+            before = policy.load(target, policy.SYSTEM).version
             shutil.move(target, os.path.join(previous_dir(), name))
             say(f"지움    {name}  (저장소에서 사라짐. previous 에 보관)")
+            audit.record_policy_change("removed", name, before=before, commit=commit)
         synced.discard(name)
     _write_manifest(synced)
     return 1 if refused else 0

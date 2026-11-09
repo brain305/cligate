@@ -32,7 +32,7 @@ ENFORCE, OBSERVE = "enforce", "observe"
 
 TOP_KEYS = {"policy", "audit", "rule"}
 POLICY_KEYS = {"name", "version"}
-AUDIT_KEYS = {"min_level", "policy_hits", "full_command"}  # 3단계의 감사 기록에서 쓴다. 지금은 형식만 검사한다
+AUDIT_KEYS = {"min_level", "policy_hits", "full_command"}  # 감사 기록 설정. 팀 규칙 파일의 것만 쓴다
 RULE_KEYS = {"id", "command", "level", "message", "args", "path", "when", "word", "suggest", "owner", "mode",
              "expires", "tests"}
 REQUIRED = ("id", "command", "level", "message")
@@ -82,6 +82,7 @@ class Policy:
     errors: list = field(default_factory=list)
     trusted: bool = True
     digest: str = ""
+    audit: dict = None  # 팀 규칙의 [audit]. 감사 기록 설정이다
 
     @property
     def usable(self):
@@ -171,6 +172,8 @@ def load(path, source, today=None, strict=False):
         policy.errors.append(f"TOML 형식이 아닙니다: {e}")
         return policy
     policy.name, policy.version, policy.rules, policy.errors = validate(data, source, path, today, strict)
+    if isinstance(data.get("audit"), dict):
+        policy.audit = data["audit"]
     return policy
 
 
@@ -193,6 +196,13 @@ def validate(data, source, path, today=None, strict=False):
     audit = data.get("audit", {})
     for key in (audit.keys() - AUDIT_KEYS if isinstance(audit, dict) else ["(표가 아님)"]):
         errors.append(f"[audit] 에 모르는 항목입니다: {key}")
+    if isinstance(audit, dict):
+        min_level = audit.get("min_level", 2)
+        if not isinstance(min_level, int) or isinstance(min_level, bool) or not 1 <= min_level <= 3:
+            errors.append("[audit] min_level 은 1~3 입니다")
+        for key in ("policy_hits", "full_command"):
+            if not isinstance(audit.get(key, False), bool):
+                errors.append(f"[audit] {key} 는 true 또는 false 입니다")
 
     rules = []
     seen = set()

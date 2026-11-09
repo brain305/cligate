@@ -213,7 +213,13 @@ freeze-main-push   L3  연말 배포 동결 기간입니다 (관찰 모드라 �
 | 판정을 끝내지 못한 명령 | 원격 확인 실패 등 |
 | 정책 변경 | 적용과 거부, 정책 저장소의 커밋 번호와 작성자 |
 
-저장 위치는 `/var/log/cligate/audit.jsonl` 또는 사내 syslog이다.
+**켜는 조건:** 팀 규칙(시스템 정책) 파일에 `[audit]`가 있을 때만 켜진다. 개인·프로젝트 규칙의 `[audit]`는 쓰지 않아서 사용자가 감사 기록을 끌 수 없다. 팀 규칙 파일이 여러 개면 가장 엄격한 쪽을 따른다 (`min_level`은 가장 낮은 값, `policy_hits`와 `full_command`는 하나라도 켜져 있으면 켬).
+
+**저장 위치:** `/var/log/cligate/audit-사용자.jsonl`. 쓸 수 없으면 `~/.local/state/cligate/audit.jsonl`. `/etc/cligate/config.toml`의 `[audit] syslog = true`면 이 컴퓨터의 syslog로도 보낸다. 정책 변경은 설정과 관계없이 항상 남긴다.
+
+**판정을 끝내지 못한 명령:** 판정 결과 문구에 "확인할 수 없", "확인하지 못", "알 수 없어", 오프라인 추정 표시가 있으면 그렇게 본다. 판정 코드에 새 문구가 생기면 이 목록도 함께 고쳐야 한다.
+
+**결과:** `approved`(y 또는 단어 입력), `cancelled`(거절하거나 빈 입력), `wrong_word`(L3에서 다른 단어), `passed`(묻지 않고 실행).
 
 ### 9.4 여러 서버의 기록 합치기 (2단계)
 
@@ -308,7 +314,7 @@ payments/prod-data-delete     13     0           -      -        -
 | --- | --- |
 | 1 | 규칙 형식, 모드, 개인·저장소 규칙, `add`, `remove`, `show`, `check`, `test`, `explain`, `hits`(지금 서버), `trust`, 개인 관찰 기록, 측정 케이스 (구현됨) |
 | 2 | 시스템 정책(`/etc`), 파일 권한 확인, `sync`, 서버 관찰 기록, `hits` 여러 파일 합산 (구현됨) |
-| 3 | 감사 기록, `audit report` 주간 보고서 |
+| 3 | 감사 기록, `audit report` 주간 보고서 (구현됨) |
 | 4 | 대화형 작성기, 서명 |
 
 **1단계 안의 순서:** 시연에 꼭 필요한 것부터 한다.

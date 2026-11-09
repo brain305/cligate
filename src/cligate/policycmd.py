@@ -409,6 +409,70 @@ def cmd_trust(args):
     return 0
 
 
+def audit_main(argv):
+    parser = argparse.ArgumentParser(prog=f"{APP_NAME} audit", description="감사 기록")
+    sub = parser.add_subparsers(dest="command", required=True)
+    report = sub.add_parser("report", help="감사 기록 보고서")
+    report.add_argument("files", nargs="*")
+    report.add_argument("--since", default="7d")
+    report.add_argument("--top", type=int, default=10)
+    group = report.add_mutually_exclusive_group()
+    group.add_argument("--by-host", action="store_const", const="host", dest="by")
+    group.add_argument("--by-user", action="store_const", const="user", dest="by")
+    args = parser.parse_args(argv)
+    return cmd_audit_report(args)
+
+
+def _rate(counts):
+    rate = audit.stopped_rate(counts)
+    return "-" if rate is None else f"{rate * 100:.0f}%"
+
+
+def _result_cells(counts):
+    return [str(sum(counts.values())), str(counts[audit.APPROVED]), str(counts[audit.CANCELLED]),
+            str(counts[audit.WRONG_WORD]), str(counts[audit.PASSED]), _rate(counts)]
+
+
+def cmd_audit_report(args):
+    try:
+        since = audit.parse_since(args.since) if args.since != "all" else None
+    except ValueError:
+        print("--since 는 7d, 24h, 30m, all 처럼 씁니다")
+        return 1
+    summary = audit.summarize_audit(args.files or audit.audit_files(), since=since, by=args.by)
+    period = f"{summary.first[5:10]} ~ {summary.last[5:10]}" if summary.first else "기록 없음"
+    print(f"기간 {period}   파일 {summary.files}개   기록 {summary.lines:,}줄   "
+          f"중복 {summary.duplicates}   읽지 못한 줄 {summary.unreadable}")
+    head = ("건수", "승인", "취소", "잘못된 입력", "통과", "멈춘 비율")
+
+    print("\n등급별")
+    _print_table([("등급", *head)] + [(f"L{level}", *_result_cells(counts))
+                                     for level, counts in sorted(summary.levels.items(), reverse=True)])
+    print(f"판정을 끝내지 못한 명령  {summary.unverified}건")
+
+    if summary.rules:
+        print("\n팀 규칙별")
+        _print_table([("규칙", *head)] + [(name, *_result_cells(counts))
+                                         for name, counts in sorted(summary.rules.items())])
+    if summary.commands:
+        print(f"\n자주 걸린 명령 (상위 {args.top})")
+        top = sorted(summary.commands.items(), key=lambda item: (-sum(item[1].values()), item[0]))[:args.top]
+        _print_table([("명령", *head)] + [(name, *_result_cells(counts)) for name, counts in top])
+    if args.by and summary.by:
+        print("\n" + ("서버별" if args.by == "host" else "사용자별"))
+        _print_table([("서버" if args.by == "host" else "사용자", *head)]
+                     + [(name, *_result_cells(counts)) for name, counts in sorted(summary.by.items())])
+    if summary.changes:
+        print("\n정책 변경")
+        names = {"added": "추가", "changed": "바꿈", "removed": "지움", "refused": "건너뜀"}
+        for event in summary.changes:
+            versions = " → ".join(f"v{v}" for v in (event.get("before"), event.get("after")) if v is not None)
+            reason = f"  ({event['reason']})" if event.get("reason") else ""
+            print(f"  {event['time'][5:16].replace('T', ' ')}  {names.get(event['action'], event['action'])}  "
+                  f"{event['file']}  {versions}  {event.get('commit', '')}{reason}".rstrip())
+    return 0
+
+
 def cmd_sync(args):
     try:
         return sync.sync()
