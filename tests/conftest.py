@@ -46,6 +46,7 @@ def isolated(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))  # 실제 사용 기록을 건드리지 않는다
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)  # 개인 규칙은 임시 홈 아래에서 읽는다
     monkeypatch.setenv("SHELL", "/bin/sh")  # 개발자 셸의 별칭과 문법이 결과에 끼어들지 않게 한다
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")

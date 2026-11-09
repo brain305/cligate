@@ -24,6 +24,7 @@ class Finding:
     level: int
     message: str
     word: str = DEFAULT_WORD
+    rule: object = None  # 팀 규칙에서 나온 판정이면 그 규칙. 기본 판정은 None
 
     def __str__(self):
         return f"[L{self.level}] {self.message}"
@@ -33,6 +34,7 @@ class Finding:
 class Verdict:
     """한 줄 전체의 판정. 등급은 그 안에서 가장 높은 것을 따른다."""
     findings: list = field(default_factory=list)
+    observed: list = field(default_factory=list)  # observe 모드로 걸린 규칙. 등급에는 반영하지 않고 기록만 한다
 
     @property
     def level(self):

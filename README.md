@@ -152,6 +152,24 @@ CliGate는 **실수를 줄이는 도구이지 보안 도구가 아닙니다.** �
 
 `.zshrc`, `.bashrc`의 별칭은 시작할 때 한 번 읽습니다. 셸 함수(`nvm`, `conda activate` 등)는 동작하지 않습니다. 실행한 명령의 이름과 옵션 이름은 자동완성 순서를 위해 `~/.local/state/cligate/history`에 기록합니다. 인자 값은 저장하지 않으며, 이 파일을 지우면 기본 순서로 돌아갑니다.
 
+## 팀 규칙
+
+CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막을 수 있습니다. 규칙은 등급을 올리기만 하고, 기본 판정보다 낮출 수 없습니다. 설계는 [docs/policy.md](docs/policy.md)에 있고, 지금은 1단계(개인 규칙과 프로젝트 규칙)까지 만들었습니다.
+
+```bash
+cligate policy add --command "terraform destroy" --level 3 --message "운영 인프라를 지웁니다"
+cligate policy explain "terraform destroy"    # 걸리는 규칙과 최종 등급
+cligate policy show                           # 적용 중인 규칙
+cligate policy remove terraform-destroy-1
+```
+
+| 규칙 파일 | 위치 | 켜지는 조건 |
+| --- | --- | --- |
+| 개인 규칙 | `~/.config/cligate/policy.toml` | 항상 |
+| 프로젝트 규칙 | 저장소의 `.cligate/policy.toml` | `cligate policy trust`로 승인했을 때. 파일이 바뀌면 다시 승인 |
+
+파일에 직접 쓴 규칙은 `mode = "enforce"`가 없으면 관찰 모드로 시작합니다. 화면은 그대로 두고 걸린 사실만 `~/.local/state/cligate/observe.jsonl`에 남기며, `cligate policy hits`로 규칙별 횟수를 봅니다. 규칙 파일은 `cligate policy check`로 검사하고, 규칙 안의 `tests`는 `cligate policy test`로 돌립니다.
+
 ## 시연과 시험
 
 위험한 명령은 실제 컴퓨터가 아닌 Docker 컨테이너에서 시험하세요. 맥의 폴더를 연결하지 않고, 나가면 모두 사라집니다.
@@ -159,7 +177,7 @@ CliGate는 **실수를 줄이는 도구이지 보안 도구가 아닙니다.** �
 ```bash
 docker/run.sh        # 시연 환경. 명령 목록은 docker/demo-commands.md
 docker/run.sh test   # 리눅스에서 전체 테스트
-docker/run.sh eval   # 보고서 지표 케이스 70건 측정
+docker/run.sh eval   # 보고서 지표 케이스 70건과 팀 규칙 케이스 15건 측정
 ```
 
 ## 파일 역할
@@ -182,6 +200,9 @@ docker/run.sh eval   # 보고서 지표 케이스 70건 측정
 | `statusline.py` | 입력창 아래의 원격 상태. 1분마다 백그라운드에서 조사              |
 | `ui.py`       | 입력창, 경고 상자, 상태 줄을 그림                                   |
 | `runner.py`   | 셸로 실행하고 위치를 따라감                                         |
+| `policy.py`   | 팀 규칙 읽기, 검사, 명령과 대조                                     |
+| `policycmd.py` | `cligate policy` 하위 명령                                         |
+| `audit.py`    | 관찰 기록을 남기고 규칙별로 셈                                      |
 
 ## 진행 현황
 

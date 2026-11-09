@@ -1,6 +1,7 @@
+import os
 import sys
 
-from . import APP_NAME, __version__, parse, builtin, gate, learn, risk, runner, shell, statusline, ui
+from . import APP_NAME, __version__, audit, parse, builtin, gate, learn, policy, risk, runner, shell, statusline, ui
 
 
 REMOTE_WAIT_SECONDS = 1.5
@@ -11,6 +12,9 @@ def main():
     if sys.argv[1:] == ["--version"]:
         print(f"{APP_NAME} {__version__}")
         return
+    if sys.argv[1:2] == ["policy"]:
+        from . import policycmd
+        sys.exit(policycmd.main(sys.argv[2:]))
     if sys.platform == "win32":
         # /bin/sh 로 실행하는 구조라 명령을 입력하는 순간 오류로 끝난다. 설치는 되므로 처음에 알린다
         sys.stdout.reconfigure(errors="replace")
@@ -21,6 +25,7 @@ def main():
     monitor.start()
     # 자동완성은 0.5초 멈췄을 때 IdleTrigger 가 연다. TAB 은 언제든 동작한다
     screen = ui.Prompt(APP_NAME, monitor)
+    _warn_broken_policies()
     while True:
         try:
             line = screen.read_command().strip()
@@ -62,15 +67,19 @@ def main():
                 ui.answer(reply)
                 if reply != verdict.word:
                     ui.notice("취소했습니다. 아무것도 실행하지 않았습니다")
+                    audit.record_observed(verdict.observed, os.getcwd(), audit.CANCELLED)
                     continue
             elif verdict.level == risk.L2:
                 reply = screen.ask("실행할까요? (y/N)").strip()
                 ui.answer(reply)
                 if reply.lower() != "y":
                     ui.notice("취소했습니다. 아무것도 실행하지 않았습니다")
+                    audit.record_observed(verdict.observed, os.getcwd(), audit.CANCELLED)
                     continue
 
             # 6. 실행 - 입력 내용을 쉘에 그대로 넣는 입력
+            # 관찰 모드 규칙은 화면에 알리지 않고, 걸린 사실만 실행 전 폴더 기준으로 남긴다
+            audit.record_observed(verdict.observed, os.getcwd(), audit.PASSED)
             monitor.pause()
             try:
                 code = runner.run(line)
@@ -86,3 +95,13 @@ def main():
         except KeyboardInterrupt:
             print()
             continue
+
+
+def _warn_broken_policies():
+    """오류가 있거나 승인 전인 규칙 파일은 쓰지 않는다. 모르고 지나치지 않게 시작할 때 한 번 알린다."""
+    for loaded in policy.policies(os.getcwd()):
+        label = policy.SOURCE_LABEL[loaded.source]
+        if loaded.errors:
+            ui.notice(f"{APP_NAME}: {label} 파일에 오류가 있어 쓰지 않습니다. {APP_NAME} policy check {loaded.file}")
+        elif not loaded.trusted:
+            ui.notice(f"{APP_NAME}: {label}이 승인 전이라 쓰지 않습니다. {APP_NAME} policy trust")
