@@ -141,7 +141,7 @@ cligate policy remove terraform-destroy-1
 2. **검사:** `cligate policy check`로 문법과 값을 확인한다.
 3. **시험:** `cligate policy test`로 규칙의 예시를 돌리고, `cligate policy explain "명령"`으로 걸리는 규칙과 최종 등급을 본다.
 4. **리뷰:** 머지 요청을 올리고 담당자 승인 후 합친다.
-5. **배포:** 각 서버에서 `cligate policy sync`로 받는다. `check`를 통과한 파일만 반영한다. 기존 배포 도구로 파일을 복사해도 된다.
+5. **배포:** 각 서버에서 `cligate policy sync`로 받는다. `check`를 통과하고 버전이 커진 파일만 반영한다. 바꾸기 전 파일은 `/etc/cligate/previous`에 보관한다. 저장소에서 사라진 파일은 서버에서도 지운다. 지우는 것은 `sync`가 받은 파일뿐이고(`/etc/cligate/synced.json`에 기록), 관리자가 직접 넣은 파일은 건드리지 않는다. 기존 배포 도구로 파일을 복사해도 된다.
 6. **관찰:** `observe`로 시작한다. 관리자가 각 서버의 관찰 기록을 모아 `cligate policy hits`로 합쳐 본다.
 7. **적용:** 걸린 횟수가 적당하면 `mode = "enforce"`로 바꿔 다시 배포한다.
 
@@ -202,7 +202,7 @@ freeze-main-push   L3  연말 배포 동결 기간입니다 (관찰 모드라 �
 | 위치 | 대상 | 단계 |
 | --- | --- | --- |
 | `~/.local/state/cligate/observe.jsonl` | 개인·저장소 규칙의 `observe` 걸림 | 1 |
-| `/var/log/cligate/observe.jsonl` | 시스템 정책의 `observe` 걸림 | 2 |
+| `/var/log/cligate/observe-사용자.jsonl` | 시스템 정책의 `observe` 걸림. 사용자마다 파일이 따로이고, `sync`가 폴더를 권한 1733(누구나 자기 파일을 만들 수 있지만 남의 파일은 고칠 수 없음)으로 만든다. 쓸 수 없으면 개인 관찰 기록에 남긴다 | 2 |
 
 ### 9.3 감사 기록 (3단계)
 
@@ -213,7 +213,13 @@ freeze-main-push   L3  연말 배포 동결 기간입니다 (관찰 모드라 �
 | 판정을 끝내지 못한 명령 | 원격 확인 실패 등 |
 | 정책 변경 | 적용과 거부, 정책 저장소의 커밋 번호와 작성자 |
 
-저장 위치는 `/var/log/cligate/audit.jsonl` 또는 사내 syslog이다.
+**켜는 조건:** 팀 규칙(시스템 정책) 파일에 `[audit]`가 있을 때만 켜진다. 개인·프로젝트 규칙의 `[audit]`는 쓰지 않아서 사용자가 감사 기록을 끌 수 없다. 팀 규칙 파일이 여러 개면 가장 엄격한 쪽을 따른다 (`min_level`은 가장 낮은 값, `policy_hits`와 `full_command`는 하나라도 켜져 있으면 켬).
+
+**저장 위치:** `/var/log/cligate/audit-사용자.jsonl`. 쓸 수 없으면 `~/.local/state/cligate/audit.jsonl`. `/etc/cligate/config.toml`의 `[audit] syslog = true`면 이 컴퓨터의 syslog로도 보낸다. 정책 변경은 설정과 관계없이 항상 남긴다.
+
+**판정을 끝내지 못한 명령:** 판정 결과 문구에 "확인할 수 없", "확인하지 못", "알 수 없어", 오프라인 추정 표시가 있으면 그렇게 본다. 판정 코드에 새 문구가 생기면 이 목록도 함께 고쳐야 한다.
+
+**결과:** `approved`(y 또는 단어 입력), `cancelled`(거절하거나 빈 입력), `wrong_word`(L3에서 다른 단어), `passed`(묻지 않고 실행).
 
 ### 9.4 여러 서버의 기록 합치기 (2단계)
 
@@ -297,6 +303,7 @@ payments/prod-data-delete     13     0           -      -        -
 - 사용자가 CliGate를 쓰지 않거나 `exit`로 나간 경우
 - 강제적인 접근 통제. 필요하면 서버 접근통제 솔루션과 함께 쓴다.
 - 서버 root 권한자의 변경
+- 시험용 경로 변경. `CLIGATE_ETC_DIR`, `CLIGATE_LOG_DIR`로 `/etc/cligate`, `/var/log/cligate`를 바꾸면 그 사용자 소유 파일도 믿는다. 사용자가 CliGate를 쓰지 않는 것과 같은 수준이라 막지 않는다
 - 정책 저장소의 권한 관리. 사내 git 서버 설정이 맡는다.
 - 서버에서 기록 파일을 가져오는 일. 회사의 배포·수집 도구가 맡는다.
 - 호스팅 서비스 설정(보호 브랜치, 푸시 규칙). 읽지 않고, 보호 여부와 관계없이 지금 판정을 그대로 쓴다.
@@ -305,9 +312,9 @@ payments/prod-data-delete     13     0           -      -        -
 
 | 단계 | 내용 |
 | --- | --- |
-| 1 | 규칙 형식, 모드, 개인·저장소 규칙, `add`, `remove`, `show`, `check`, `test`, `explain`, `hits`(지금 서버), `trust`, 개인 관찰 기록, 측정 케이스 |
-| 2 | 시스템 정책(`/etc`), 파일 권한 확인, `sync`, 서버 관찰 기록, `hits` 여러 파일 합산 |
-| 3 | 감사 기록, `audit report` 주간 보고서 |
+| 1 | 규칙 형식, 모드, 개인·저장소 규칙, `add`, `remove`, `show`, `check`, `test`, `explain`, `hits`(지금 서버), `trust`, 개인 관찰 기록, 측정 케이스 (구현됨) |
+| 2 | 시스템 정책(`/etc`), 파일 권한 확인, `sync`, 서버 관찰 기록, `hits` 여러 파일 합산 (구현됨) |
+| 3 | 감사 기록, `audit report` 주간 보고서 (구현됨) |
 | 4 | 대화형 작성기, 서명 |
 
 **1단계 안의 순서:** 시연에 꼭 필요한 것부터 한다.

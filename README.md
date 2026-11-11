@@ -84,6 +84,25 @@ pipx uninstall cligate
 pipx install --force git+https://github.com/brain305/cligate.git@v0.1.0
 ```
 
+### v0.3.0 (2026-11-11)
+
+**팀 규칙**
+
+- CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막습니다. 규칙은 등급을 올리기만 하고 낮출 수 없습니다.
+- 규칙 파일은 세 곳에서 읽습니다. 팀 규칙 `/etc/cligate/policy.d/*.toml`(root 소유일 때만), 프로젝트 규칙 `.cligate/policy.toml`(`cligate policy trust`로 승인했을 때만), 개인 규칙 `~/.config/cligate/policy.toml`입니다.
+- `cligate policy add`, `remove`, `show`, `check`, `test`, `explain`, `trust` 명령을 추가했습니다.
+- 관찰 모드 규칙은 화면을 그대로 두고 걸린 사실만 기록합니다. `cligate policy hits`로 규칙별 횟수를 봅니다.
+
+**배포와 감사**
+
+- `sudo cligate policy sync`로 사내 정책 저장소에서 팀 규칙을 받습니다. 검사를 통과하고 버전이 커진 파일만 반영하고, 직전 버전을 남깁니다.
+- 팀 규칙에 `[audit]`가 있으면 확인 화면이 뜬 명령의 승인과 취소, 팀 규칙에 걸린 명령, 정책 변경을 기록합니다. `cligate audit report`로 등급별, 규칙별 통계를 봅니다.
+- 외부 서비스와 연결하지 않습니다. 정책 저장소도 사내 git 주소를 씁니다.
+
+**환경**
+
+- Python 3.10 이하에서는 규칙 파일을 읽기 위해 `tomli`를 함께 설치합니다.
+
 ### v0.2.1 (2026-11-05)
 
 **화면**
@@ -152,6 +171,56 @@ CliGate는 **실수를 줄이는 도구이지 보안 도구가 아닙니다.** �
 
 `.zshrc`, `.bashrc`의 별칭은 시작할 때 한 번 읽습니다. 셸 함수(`nvm`, `conda activate` 등)는 동작하지 않습니다. 실행한 명령의 이름과 옵션 이름은 자동완성 순서를 위해 `~/.local/state/cligate/history`에 기록합니다. 인자 값은 저장하지 않으며, 이 파일을 지우면 기본 순서로 돌아갑니다.
 
+## 팀 규칙
+
+CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막을 수 있습니다. 규칙은 등급을 올리기만 하고, 기본 판정보다 낮출 수 없습니다. 설계는 [docs/policy.md](docs/policy.md)에 있고, 지금은 3단계(감사 기록)까지 만들었습니다.
+
+```bash
+cligate policy add --command "terraform destroy" --level 3 --message "운영 인프라를 지웁니다"
+cligate policy explain "terraform destroy"    # 걸리는 규칙과 최종 등급
+cligate policy show                           # 적용 중인 규칙
+cligate policy remove terraform-destroy-1
+```
+
+| 규칙 파일 | 위치 | 켜지는 조건 |
+| --- | --- | --- |
+| 팀 규칙 | `/etc/cligate/policy.d/*.toml` | 파일과 그 위 폴더가 root 소유이고 다른 사람이 쓸 수 없을 때 |
+| 프로젝트 규칙 | 저장소의 `.cligate/policy.toml` | `cligate policy trust`로 승인했을 때. 파일이 바뀌면 다시 승인 |
+| 개인 규칙 | `~/.config/cligate/policy.toml` | 항상 |
+
+파일에 직접 쓴 규칙은 `mode = "enforce"`가 없으면 관찰 모드로 시작합니다. 화면은 그대로 두고 걸린 사실만 기록하며, `cligate policy hits`로 규칙별 횟수를 봅니다. 규칙 파일은 `cligate policy check`로 검사하고, 규칙 안의 `tests`는 `cligate policy test`로 돌립니다.
+
+**팀 규칙 배포:** 사내 정책 저장소 주소를 `/etc/cligate/config.toml`에 적고, 각 서버에서 받습니다.
+
+```toml
+# /etc/cligate/config.toml   (root 소유, 다른 사람은 쓸 수 없게)
+[sync]
+repo = "git@git.corp:security/cligate-policies.git"
+```
+
+```bash
+sudo cligate policy sync                      # 검사를 통과하고 버전이 커진 파일만 반영
+cligate policy show --previous                # 직전 버전
+cligate policy hits logs/*.jsonl --since 7d   # 여러 서버의 관찰 기록을 모아 합산
+```
+
+팀 규칙의 관찰 기록은 `/var/log/cligate/observe-사용자.jsonl`에 남습니다.
+
+**감사 기록:** 팀 규칙 파일에 `[audit]`가 있으면 켜집니다. 확인 화면이 뜬 명령(L2 이상)의 승인과 취소, 팀 규칙에 걸린 명령, 판정을 끝내지 못한 명령, `sync`의 정책 변경을 `/var/log/cligate/audit-사용자.jsonl`에 남깁니다. 명령은 이름과 옵션만 남기고, 인자는 `full_command = true`일 때만 남깁니다.
+
+```toml
+[audit]
+min_level = 2          # 1이면 알림(L1)까지, 3이면 차단(L3)만
+policy_hits = true     # 팀 규칙에 걸린 명령은 등급과 관계없이
+full_command = false
+```
+
+```bash
+cligate audit report --since 7d --by-user     # 등급별, 규칙별, 명령별 승인·취소와 멈춘 비율, 정책 변경
+```
+
+`/etc/cligate/config.toml`에 `[audit] syslog = true`를 적으면 이 컴퓨터의 syslog로도 보냅니다.
+
 ## 시연과 시험
 
 위험한 명령은 실제 컴퓨터가 아닌 Docker 컨테이너에서 시험하세요. 맥의 폴더를 연결하지 않고, 나가면 모두 사라집니다.
@@ -159,7 +228,7 @@ CliGate는 **실수를 줄이는 도구이지 보안 도구가 아닙니다.** �
 ```bash
 docker/run.sh        # 시연 환경. 명령 목록은 docker/demo-commands.md
 docker/run.sh test   # 리눅스에서 전체 테스트
-docker/run.sh eval   # 보고서 지표 케이스 70건 측정
+docker/run.sh eval   # 보고서 지표 케이스 70건과 팀 규칙 케이스 18건 측정
 ```
 
 ## 파일 역할
@@ -182,6 +251,10 @@ docker/run.sh eval   # 보고서 지표 케이스 70건 측정
 | `statusline.py` | 입력창 아래의 원격 상태. 1분마다 백그라운드에서 조사              |
 | `ui.py`       | 입력창, 경고 상자, 상태 줄을 그림                                   |
 | `runner.py`   | 셸로 실행하고 위치를 따라감                                         |
+| `policy.py`   | 팀 규칙 읽기, 검사, 명령과 대조                                     |
+| `policycmd.py` | `cligate policy` 하위 명령                                         |
+| `audit.py`    | 관찰 기록과 감사 기록을 남기고 규칙별로 셈                          |
+| `sync.py`     | 사내 정책 저장소에서 팀 규칙을 받아 반영                            |
 
 ## 진행 현황
 
@@ -196,6 +269,7 @@ docker/run.sh eval   # 보고서 지표 케이스 70건 측정
 | 7    | 0.5초 멈추면 뜨는 자동완성  | ✅   |
 | 8    | 입력창 아래의 원격 상태 표시 | ✅  |
 | 9    | 보고서의 검증 지표 측정     | ✅   |
+| 10   | 팀 규칙, 배포, 감사 기록 (v0.3.0) | ✅ |
 
 ## 개발
 

@@ -39,13 +39,39 @@ def judge_one(case):
     """실제 입력 흐름의 문법 검사, 파싱, 판정만 돌린다. 실행 단계는 부르지 않는다."""
     from cligate import gate, parse
     line = case["command"]
+    write_policies(case)
     collect_status()
     if parse.syntax_error(line):
         return {"error": "문법 오류로 판정"}
     started = time.perf_counter()
     verdict = gate.check(parse.parse(line))
     return {"level": verdict.level, "ms": (time.perf_counter() - started) * 1000,
-            "messages": [f.message.split("\n")[0] for f in verdict.findings]}
+            "messages": [f.message.split("\n")[0] for f in verdict.findings],
+            "rules": [f.rule.id for f in verdict.findings if f.rule is not None],
+            "observed": [r.id for r in verdict.observed]}
+
+
+def write_policies(case):
+    """정책 케이스의 개인 규칙과 프로젝트 규칙을 임시 홈과 저장소에 둔다."""
+    if not any(case.get(key) for key in ("policy", "project", "system")):
+        return
+    from cligate import policy
+    if case.get("system"):
+        path = Path(policy.system_dir(), "team.toml")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(case["system"], encoding="utf-8")
+        path.chmod(int(case.get("system_mode", "644"), 8))
+        for folder in (path.parent, path.parent.parent):
+            folder.chmod(0o755)
+    if case.get("policy"):
+        Path(policy.user_file()).parent.mkdir(parents=True, exist_ok=True)
+        Path(policy.user_file()).write_text(case["policy"], encoding="utf-8")
+    if case.get("project"):
+        path = Path(os.getcwd(), policy.PROJECT_FILE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(case["project"], encoding="utf-8")
+        if case.get("trusted"):
+            policy.trust(str(path), policy.load(str(path), policy.PROJECT).digest)
 
 
 def complete_one(case):
@@ -68,8 +94,9 @@ def run_case(case):
     with tempfile.TemporaryDirectory() as temp:
         temp = os.path.realpath(temp)
         env = {k: v for k, v in os.environ.items()
-               if k not in ("X", "BUILD", "XDG_STATE_HOME", "GIT_DIR", "GIT_WORK_TREE")}
-        env.update(HOME=temp, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+               if k not in ("X", "BUILD", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "GIT_DIR", "GIT_WORK_TREE")}
+        env.update(HOME=temp, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0",
+                   CLIGATE_ETC_DIR=f"{temp}/etc", CLIGATE_LOG_DIR=f"{temp}/log")  # 실제 /etc 를 읽지 않는다
         Path(temp, ".zshrc").touch()
         script = f'set -e; source "{HERE / "fixture.sh"}"; make_fixture "{temp}/repo"; {case["setup"] or "true"}'
         os.mkdir(f"{temp}/repo")
@@ -138,6 +165,28 @@ def show_scenarios(cases):
     return rows, errors
 
 
+def show_policy(cases):
+    """정책 케이스는 등급과, enforce 로 걸려야 하는 규칙이 맞는지 본다."""
+    print(f"\n정책 케이스 {len(cases)}건")
+    matched, errors = 0, 0
+    for case in cases:
+        result = safely(case)
+        if "error" in result:
+            errors += 1
+            print(f"  !  {case['id']}  {case['command']}  오류: {result['error']}")
+            continue
+        got = LEVELS[result["level"]]
+        rule_ok = case["rule"] in result["rules"] if case["rule"] else not result["rules"]
+        ok = got == case["expected"] and rule_ok
+        matched += ok
+        hit = ", ".join(result["rules"]) or "-"
+        print(f"  {'O' if ok else 'X'}  {case['id']}  기대 {case['expected']}/{case['rule'] or '-'}  "
+              f"결과 {got}/{hit}  {case['command']}  ({case['state']})")
+        if not ok and result["observed"]:
+            print(f"        관찰로 걸림: {', '.join(result['observed'])}")
+    return matched, errors
+
+
 def summarize(judged, scenarios):
     """지표를 계산해 (이름, 측정값, 목표, 달성) 을 돌려준다."""
     matched = sum(got == case["expected"] for case, got, _ in judged)
@@ -160,6 +209,7 @@ def summarize(judged, scenarios):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cases", default=str(HERE / "cases.yaml"))
+    parser.add_argument("--policy-cases", default=str(HERE / "policy_cases.yaml"))
     parser.add_argument("--one", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.one:
@@ -169,18 +219,25 @@ def main():
     data = yaml.safe_load(Path(args.cases).read_text(encoding="utf-8"))
     judged, judge_errors = show_judgement(data.get("judgement", []))
     scenarios, scenario_errors = show_scenarios(data.get("state_scenarios", []))
-    errors = judge_errors + scenario_errors
+    policy_cases = []
+    if args.policy_cases and Path(args.policy_cases).exists():
+        policy_cases = yaml.safe_load(Path(args.policy_cases).read_text(encoding="utf-8")).get("policy_cases", [])
+    policy_matched, policy_errors = show_policy(policy_cases) if policy_cases else (0, 0)
+    errors = judge_errors + scenario_errors + policy_errors
     metrics, excess = summarize(judged, scenarios)
 
     print("\n지표 결과")
     for name, value, target, ok in metrics:
         print(f"  {verdict(ok)}  {name}: {value} (목표 {target})")
     print(f"  참고  기대보다 높게 판정: {excess}건")
-    print(f"\n실행 {len(judged) + len(scenarios)}건, 오류 {errors}건")
+    policy_ok = policy_matched == len(policy_cases)
+    if policy_cases:
+        print(f"  {verdict(policy_ok)}  정책 케이스 일치: {policy_matched}/{len(policy_cases)} (목표 전부)")
+    print(f"\n실행 {len(judged) + len(scenarios) + len(policy_cases)}건, 오류 {errors}건")
     if errors:
         print("돌리지 못한 케이스가 있어 위 지표는 전체 결과가 아닙니다")
         return 2
-    return 0 if all(ok for *_, ok in metrics) else 1
+    return 0 if all(ok for *_, ok in metrics) and policy_ok else 1
 
 
 if __name__ == "__main__":

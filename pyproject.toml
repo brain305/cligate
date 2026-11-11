@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cligate"
-version = "0.2.1"
+version = "0.3.0"
 description = "상태 인식 셸 프론트엔드 — 되돌릴 수 없는 명령을 실행 전에 막는다"
 license = "MIT"
 requires-python = ">=3.9"         # 서버 도달 범위: RHEL 9, Ubuntu 22.04+
 dependencies = [
     "prompt_toolkit>=3.0.43",     # 입력 줄, 완성 메뉴, 터미널 제어
+    "tomli>=1.1; python_version < '3.11'",  # 팀 규칙 파일. 3.11 부터는 표준 라이브러리의 tomllib
 ]
 
 [project.optional-dependencies]

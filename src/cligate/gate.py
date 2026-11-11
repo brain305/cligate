@@ -1,6 +1,6 @@
 import os
 
-from . import APP_NAME, fileops, gitpush, gitwork, parse, paths, risk, shell, state
+from . import APP_NAME, fileops, gitpush, gitwork, parse, paths, policy, risk, shell, state
 from .risk import Finding, L1, L2, L3, R2, R3, Verdict
 
 DANGEROUS = {"rm"}
@@ -25,6 +25,7 @@ def preview(line):
 def check(commands, offline=False):
     """한 줄을 판정해 Verdict 를 돌려준다. 등급은 명령과 지금 상태의 조합으로 정한다."""
     findings = []
+    observed = []
     cwd = os.getcwd()
     # 입력 중에는 별칭을 읽느라 기다리지 않는다. 실행 전 판정은 다 읽은 뒤에 한다
     for real, wrappers in _walk(commands, shell.aliases(wait=not offline)):
@@ -43,7 +44,12 @@ def check(commands, offline=False):
         elif name == "find" and "-delete" in real:
             level = L3 if any(paths.is_critical(paths.resolve(w, cwd)) for w in _find_roots(real)) else L2
             findings.append(Finding(level, "find -delete: 찾은 파일을 삭제합니다. 되돌릴 수 없습니다"))
-    return Verdict(list({f.message: f for f in findings}.values()))
+        if not real[0].startswith("$"):
+            # 팀 규칙은 기본 판정 뒤에 더한다. 등급은 가장 높은 것을 따르므로 규칙은 올리기만 한다
+            found, seen = policy.evaluate(real, cwd)
+            findings.extend(found)
+            observed.extend(r for r in seen if r not in observed)
+    return Verdict(list({f.message: f for f in findings}.values()), observed)
 
 
 def touches_remote(commands):
