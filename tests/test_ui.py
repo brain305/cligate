@@ -254,3 +254,56 @@ class TestRealTerminal:
         screen = self._read(fd, 1.5)
         self._quit(pid, fd)
         assert "╭─ cligate" in screen and "╰" in screen
+
+
+class TestTopLine:
+    @staticmethod
+    def text(parts):
+        return "".join(t for _, t in parts)
+
+    @pytest.mark.parametrize("columns", [40, 80, 130])
+    def test_fills_exact_width(self, columns):
+        line = self.text(ui._top_line("cligate", "", "~/project/src", columns))
+        assert get_cwidth(line) == columns
+        assert line.startswith("╭─ cligate ") and line.endswith(" ~/project/src ─╮")
+
+    def test_cwd_is_dim_and_border_keeps_style(self):
+        parts = ui._top_line("cligate", "fg:ansired", "~/project", 80)
+        assert (ui.DIM, "~/project") in parts
+        assert all(style == "fg:ansired" for style, text in parts if text != "~/project")
+
+    def test_long_path_keeps_the_end(self):
+        line = self.text(ui._top_line("cligate", "", "~/" + "a" * 60 + "/src", 40))
+        assert get_cwidth(line) == 40
+        assert "…" in line and line.endswith("/src ─╮")
+
+    def test_korean_path_width(self):
+        line = self.text(ui._top_line("cligate · L2 추정", "", "~/문서/캡스톤", 60))
+        assert get_cwidth(line) == 60
+
+    def test_too_narrow_drops_path(self):
+        line = self.text(ui._top_line("cligate", "", "~/project/src", 20))
+        assert get_cwidth(line) == 20 and "project" not in line
+
+    def test_no_cwd_is_plain_border(self):
+        line = self.text(ui._top_line("실행할까요? (y/N)", "", "", 50))
+        assert get_cwidth(line) == 50 and line.endswith("─╮")
+
+    @pytest.mark.parametrize("columns", range(10, 60))
+    def test_never_wider_than_terminal(self, columns):
+        line = self.text(ui._top_line("cligate", "", "~/project/아주긴폴더이름/src", columns))
+        assert get_cwidth(line) <= max(columns, len("╭─ cligate ╮"))
+
+
+class TestStatusParts:
+    @staticmethod
+    def prompt(parts):
+        return ui.Prompt("cligate", SimpleNamespace(status_parts=lambda: parts, on_change=None))
+
+    def test_no_folder_in_status_line(self, monkeypatch):
+        monkeypatch.setattr(ui, "_short_cwd", lambda: "~/project/src")
+        text = "".join(t for _, t in self.prompt([("", "feature/login")])._status_parts())
+        assert "feature/login" in text and "~/project" not in text
+
+    def test_empty_outside_repo(self):
+        assert self.prompt([])._status_parts() == []
