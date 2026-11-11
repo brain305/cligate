@@ -63,11 +63,11 @@ python3 -m ensurepip --user && python3 -m pip install --user pipx && python3 -m 
 **2. 새 터미널을 열고 CliGate 설치**
 
 ```bash
-pipx install cligate-shell
+pipx install git+https://github.com/brain305/cligate.git
 cligate
 ```
 
-PyPI의 배포 이름은 `cligate-shell`이고, 실행 명령은 `cligate`입니다. 인터넷이 없는 서버에는 다른 컴퓨터에서 받은 파일을 옮겨 설치합니다 (`pip download cligate-shell` 뒤 `pipx install ./cligate_shell-*.whl`).
+설치 이름은 `cligate-shell`이고, 실행 명령은 `cligate`입니다.
 
 끝내려면 `exit`를 입력합니다. `cligate: command not found`가 나오면 터미널을 새로 열어보세요. 설치된 버전은 `cligate --version`으로 확인합니다.
 
@@ -78,11 +78,11 @@ pipx upgrade cligate-shell
 pipx uninstall cligate-shell
 ```
 
-v0.3.1 이전에 GitHub 주소로 설치했다면 한 번만 `pipx uninstall cligate` 뒤 `pipx install cligate-shell`로 옮깁니다.
+v0.3.1 이전 버전을 설치했다면 한 번만 `pipx uninstall cligate` 뒤 위 설치 명령으로 다시 설치합니다.
 
 ## 버전별 변경 사항
 
-이미 설치했다면 `pipx upgrade cligate-shell`로 최신 버전으로 올립니다. 특정 버전은 `pipx install --force cligate-shell==0.3.2`처럼 설치합니다. PyPI에 올리기 전 버전은 GitHub 태그로 설치합니다.
+이미 설치했다면 `pipx upgrade cligate-shell`로 최신 버전으로 올립니다. 특정 버전을 설치하려면 주소 뒤에 태그를 붙입니다.
 
 ```bash
 pipx install --force git+https://github.com/brain305/cligate.git@v0.1.0
@@ -92,7 +92,7 @@ pipx install --force git+https://github.com/brain305/cligate.git@v0.1.0
 
 **배포**
 
-- PyPI에 `cligate-shell`이라는 이름으로 올립니다. `pipx install cligate-shell`로 설치합니다. 실행 명령은 그대로 `cligate`입니다.
+- 설치 이름을 `cligate-shell`로 바꿨습니다 (PyPI의 `cligate`는 다른 프로젝트가 씁니다). 실행 명령은 그대로 `cligate`이고, 업데이트와 삭제는 `pipx upgrade cligate-shell`, `pipx uninstall cligate-shell`로 합니다.
 
 ### v0.3.1 (2026-11-11)
 
