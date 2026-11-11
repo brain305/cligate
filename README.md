@@ -63,26 +63,36 @@ python3 -m ensurepip --user && python3 -m pip install --user pipx && python3 -m 
 **2. 새 터미널을 열고 CliGate 설치**
 
 ```bash
-pipx install git+https://github.com/brain305/cligate.git
+pipx install cligate-shell
 cligate
 ```
+
+PyPI의 배포 이름은 `cligate-shell`이고, 실행 명령은 `cligate`입니다. 인터넷이 없는 서버에는 다른 컴퓨터에서 받은 파일을 옮겨 설치합니다 (`pip download cligate-shell` 뒤 `pipx install ./cligate_shell-*.whl`).
 
 끝내려면 `exit`를 입력합니다. `cligate: command not found`가 나오면 터미널을 새로 열어보세요. 설치된 버전은 `cligate --version`으로 확인합니다.
 
 **업데이트와 삭제**
 
 ```bash
-pipx upgrade cligate
-pipx uninstall cligate
+pipx upgrade cligate-shell
+pipx uninstall cligate-shell
 ```
+
+v0.3.1 이전에 GitHub 주소로 설치했다면 한 번만 `pipx uninstall cligate` 뒤 `pipx install cligate-shell`로 옮깁니다.
 
 ## 버전별 변경 사항
 
-이미 설치했다면 `pipx upgrade cligate`로 최신 버전으로 올립니다. 특정 버전을 설치하려면 주소 뒤에 태그를 붙입니다.
+이미 설치했다면 `pipx upgrade cligate-shell`로 최신 버전으로 올립니다. 특정 버전은 `pipx install --force cligate-shell==0.3.2`처럼 설치합니다. PyPI에 올리기 전 버전은 GitHub 태그로 설치합니다.
 
 ```bash
 pipx install --force git+https://github.com/brain305/cligate.git@v0.1.0
 ```
+
+### v0.3.2 (2026-11-11)
+
+**배포**
+
+- PyPI에 `cligate-shell`이라는 이름으로 올립니다. `pipx install cligate-shell`로 설치합니다. 실행 명령은 그대로 `cligate`입니다.
 
 ### v0.3.1 (2026-11-11)
 
@@ -180,7 +190,7 @@ CliGate는 **실수를 줄이는 도구이지 보안 도구가 아닙니다.** �
 
 ## 팀 규칙
 
-CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막을 수 있습니다. 규칙은 등급을 올리기만 하고, 기본 판정보다 낮출 수 없습니다. 설계는 [docs/policy.md](docs/policy.md)에 있고, 지금은 3단계(감사 기록)까지 만들었습니다.
+CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막을 수 있습니다. 규칙은 등급을 올리기만 하고, 기본 판정보다 낮출 수 없습니다. 설계는 [docs/policy.md](https://github.com/brain305/cligate/blob/main/docs/policy.md)에 있고, 지금은 3단계(감사 기록)까지 만들었습니다.
 
 ```bash
 cligate policy add --command "terraform destroy" --level 3 --message "운영 인프라를 지웁니다"
@@ -288,4 +298,4 @@ python -m pytest
 
 ## 라이선스
 
-[MIT](LICENSE)
+[MIT](https://github.com/brain305/cligate/blob/main/LICENSE)

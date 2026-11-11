@@ -9,7 +9,7 @@ RUN sed -i '/usr.share.locale/d' /etc/dpkg/dpkg.cfg.d/* \
     && sed -i 's/^# *ko_KR.UTF-8/ko_KR.UTF-8/' /etc/locale.gen && locale-gen
 RUN useradd --create-home --shell /bin/zsh demo \
     && echo "demo ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/demo
-COPY pyproject.toml /app/
+COPY pyproject.toml README.md LICENSE /app/
 COPY src /app/src
 RUN pip install --no-cache-dir /app
 # 커밋 시각과 git 안내 문구를 한국어로 보여준다
