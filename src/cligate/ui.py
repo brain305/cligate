@@ -24,6 +24,8 @@ from . import complete, risk, statusline
 
 MAX_BOX_WIDTH = 100
 MENU_HEIGHT = 8
+MIN_GAP = 3   # 제목과 현재 폴더 사이에 남길 최소 테두리
+MIN_CWD = 8   # 이보다 좁게 줄여야 하면 폴더를 쓰지 않는다
 DIM = "fg:ansibrightblack"
 FRAME = ""  # 터미널 기본 글자색. 어두운 배경에서는 밝게, 밝은 배경에서는 어둡게 보인다
 MENU_STYLE = Style.from_dict({
@@ -133,8 +135,10 @@ class Prompt:
             return self._border_style() if status else FRAME
 
         def top():
-            text = self._frame_title(title, _columns()) if status else title
-            return [(border(), f"╭─ {text} " + "─" * max(0, _columns() - get_cwidth(text) - 5) + "╮")]
+            columns = _columns()
+            if not status:
+                return _top_line(title, border(), "", columns)
+            return _top_line(self._frame_title(title, columns), border(), _short_cwd(), columns)
 
         def bottom():
             return [(border(), "╰" + "─" * max(0, _columns() - 2) + "╯")]
@@ -176,7 +180,33 @@ class Prompt:
 
     def _status_parts(self):
         parts = self.monitor.status_parts()
-        return [("", "  "), *parts, (DIM, ("  ·  " if parts else "") + _short_cwd())]
+        return [("", "  "), *parts] if parts else []  # 현재 폴더는 윗줄 테두리에 쓴다
+
+
+def _top_line(title, style, cwd, columns):
+    """입력창 윗줄. cd 로 옮겨도 위치를 알 수 있게 오른쪽 테두리 사이에 현재 폴더를 흐리게 쓴다.
+
+    자리가 모자라면 폴더 경로의 앞을 줄이고, 그래도 모자라면 쓰지 않는다. 제목이 먼저다.
+    """
+    left = f"╭─ {title} "
+    room = columns - get_cwidth(left) - MIN_GAP - 4  # 오른쪽 "␣경로␣─╮" 의 고정 4칸
+    cwd = _fit_left(cwd, room) if cwd else ""
+    if not cwd:
+        return [(style, left + "─" * max(0, columns - get_cwidth(left) - 1) + "╮")]
+    gap = columns - get_cwidth(left) - get_cwidth(cwd) - 4
+    return [(style, left + "─" * gap + " "), (DIM, cwd), (style, " ─╮")]
+
+
+def _fit_left(text, width):
+    """폭에 맞게 앞쪽을 …로 줄인다. 끝 폴더 이름이 가장 중요하다. 너무 좁으면 빈 문자열."""
+    if get_cwidth(text) <= width:
+        return text
+    if width < MIN_CWD:
+        return ""
+    tail = text
+    while tail and get_cwidth("…" + tail) > width:
+        tail = tail[1:]
+    return "…" + tail
 
 
 def _menu_hint(state):
