@@ -92,6 +92,42 @@ mkdir -p build
 for i in $(seq 1 60); do echo "로그 $i" > "build/old-$i.log"; done
 truncate -s 120M build/dump.sql
 
+# 팀 규칙 시연용 사내 정책 저장소. root 가 sync 로 받으므로 root 소유로 둔다.
+# 시연 앞부분의 판정에 끼어들지 않도록 sync 하기 전에는 적용되지 않는다
+sudo rm -rf /home/demo/policies /etc/cligate /var/log/cligate
+mkdir -p "$HOME/policies"
+cat > "$HOME/policies/ops.toml" <<'POLICY'
+[policy]
+name = "운영팀"
+version = 1
+
+[audit]
+min_level = 2
+
+[[rule]]
+id = "no-dropdb"
+command = "dropdb"
+level = 3
+word = "dropdb"
+message = "운영 DB를 지웁니다. DBA 승인 후 진행하세요"
+owner = "DBA팀"
+mode = "enforce"
+
+[[rule]]
+id = "watch-dd"
+command = "dd"
+level = 3
+message = "디스크를 직접 씁니다"
+POLICY
+git -C "$HOME/policies" init -q -b main
+git -C "$HOME/policies" add -A
+git -C "$HOME/policies" -c user.name="보안팀" -c user.email="security@example.com" commit -qm "운영팀 규칙 v1"
+sudo chown -R root:root "$HOME/policies"
+sudo install -d -m 755 /etc/cligate
+printf '[sync]\nrepo = "/home/demo/policies"\n' | sudo tee /etc/cligate/config.toml >/dev/null
+sudo chmod 644 /etc/cligate/config.toml
+cd "$HOME/project"
+
 if [ $# -gt 0 ]; then
     exec "$@"
 fi

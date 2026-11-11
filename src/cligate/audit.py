@@ -35,12 +35,18 @@ def server_observe_path():
 
 def default_files():
     """policy hits 가 파일 없이 불렸을 때 읽는 기록. 관리자는 서버의 모든 사용자 기록을 읽는다."""
+    return _with_listing([observe_path(), server_observe_path()], "observe-")
+
+
+def _with_listing(own, prefix):
+    """자기 기록은 항상 읽는다. 서버 기록 폴더는 권한 1733 이라 일반 사용자는 목록을 볼 수 없고,
+    목록을 볼 수 있는 관리자만 다른 사용자의 기록까지 읽는다."""
     try:
-        server = sorted(os.path.join(policy.log_dir(), n) for n in os.listdir(policy.log_dir())
-                        if n.startswith("observe-") and n.endswith(".jsonl"))
+        others = sorted(os.path.join(policy.log_dir(), n) for n in os.listdir(policy.log_dir())
+                        if n.startswith(prefix) and n.endswith(".jsonl"))
     except OSError:
-        server = []
-    return [observe_path(), *server]
+        others = []
+    return list(dict.fromkeys([*own, *others]))
 
 
 def record_observed(rules, cwd, result, path=None):
@@ -212,12 +218,7 @@ def personal_audit_path():
 
 def audit_files():
     """audit report 가 파일 없이 불렸을 때 읽는 기록."""
-    try:
-        server = sorted(os.path.join(policy.log_dir(), n) for n in os.listdir(policy.log_dir())
-                        if n.startswith("audit-") and n.endswith(".jsonl"))
-    except OSError:
-        server = []
-    return [personal_audit_path(), *server]
+    return _with_listing([personal_audit_path(), audit_path()], "audit-")
 
 
 def unverified(finding):

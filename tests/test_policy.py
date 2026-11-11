@@ -693,3 +693,26 @@ class TestSyncAudit:
         events = [json.loads(line) for line in open(audit.audit_path(), encoding="utf-8")]
         assert [e["action"] for e in events] == ["added", "refused"]
         assert events[1]["reason"] == "버전이 커지지 않음"
+
+
+class TestUnlistableLogFolder:
+    """서버 기록 폴더는 권한 1733 이라 일반 사용자는 목록을 볼 수 없다. 그래도 자기 기록은 읽어야 한다."""
+
+    def test_own_files_are_read_without_listing(self, repo):
+        import os
+        TestSystem().install("team.toml", "[audit]\nmin_level = 2\n" + rule(mode="observe") + rule(id="d", command="mkdir", level=2))
+        audit.record_observed(judge("touch x").observed, str(repo), audit.PASSED)
+        TestAudit().decide("mkdir y", "y")
+        os.chmod(policy.log_dir(), 0o333)  # 쓰기와 들어가기만 되고 목록은 못 본다
+        try:
+            assert audit.server_observe_path() in audit.default_files()
+            assert audit.summarize(audit.default_files()).rows
+            assert audit.summarize_audit(audit.audit_files()).levels
+        finally:
+            os.chmod(policy.log_dir(), 0o755)
+
+    def test_no_duplicate_paths_when_listing_works(self, repo):
+        TestSystem().install("team.toml", rule(mode="observe"))
+        audit.record_observed(judge("touch x").observed, str(repo), audit.PASSED)
+        files = audit.default_files()
+        assert len(files) == len(set(files))
