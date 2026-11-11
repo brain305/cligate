@@ -84,6 +84,25 @@ pipx uninstall cligate
 pipx install --force git+https://github.com/brain305/cligate.git@v0.1.0
 ```
 
+### v0.3.0 (2026-11-11)
+
+**팀 규칙**
+
+- CliGate가 기본으로 판정하지 않는 명령도 규칙으로 막습니다. 규칙은 등급을 올리기만 하고 낮출 수 없습니다.
+- 규칙 파일은 세 곳에서 읽습니다. 팀 규칙 `/etc/cligate/policy.d/*.toml`(root 소유일 때만), 프로젝트 규칙 `.cligate/policy.toml`(`cligate policy trust`로 승인했을 때만), 개인 규칙 `~/.config/cligate/policy.toml`입니다.
+- `cligate policy add`, `remove`, `show`, `check`, `test`, `explain`, `trust` 명령을 추가했습니다.
+- 관찰 모드 규칙은 화면을 그대로 두고 걸린 사실만 기록합니다. `cligate policy hits`로 규칙별 횟수를 봅니다.
+
+**배포와 감사**
+
+- `sudo cligate policy sync`로 사내 정책 저장소에서 팀 규칙을 받습니다. 검사를 통과하고 버전이 커진 파일만 반영하고, 직전 버전을 남깁니다.
+- 팀 규칙에 `[audit]`가 있으면 확인 화면이 뜬 명령의 승인과 취소, 팀 규칙에 걸린 명령, 정책 변경을 기록합니다. `cligate audit report`로 등급별, 규칙별 통계를 봅니다.
+- 외부 서비스와 연결하지 않습니다. 정책 저장소도 사내 git 주소를 씁니다.
+
+**환경**
+
+- Python 3.10 이하에서는 규칙 파일을 읽기 위해 `tomli`를 함께 설치합니다.
+
 ### v0.2.1 (2026-11-05)
 
 **화면**
@@ -209,7 +228,7 @@ cligate audit report --since 7d --by-user     # 등급별, 규칙별, 명령별 
 ```bash
 docker/run.sh        # 시연 환경. 명령 목록은 docker/demo-commands.md
 docker/run.sh test   # 리눅스에서 전체 테스트
-docker/run.sh eval   # 보고서 지표 케이스 70건과 팀 규칙 케이스 15건 측정
+docker/run.sh eval   # 보고서 지표 케이스 70건과 팀 규칙 케이스 18건 측정
 ```
 
 ## 파일 역할
@@ -234,7 +253,8 @@ docker/run.sh eval   # 보고서 지표 케이스 70건과 팀 규칙 케이스 
 | `runner.py`   | 셸로 실행하고 위치를 따라감                                         |
 | `policy.py`   | 팀 규칙 읽기, 검사, 명령과 대조                                     |
 | `policycmd.py` | `cligate policy` 하위 명령                                         |
-| `audit.py`    | 관찰 기록을 남기고 규칙별로 셈                                      |
+| `audit.py`    | 관찰 기록과 감사 기록을 남기고 규칙별로 셈                          |
+| `sync.py`     | 사내 정책 저장소에서 팀 규칙을 받아 반영                            |
 
 ## 진행 현황
 
@@ -249,6 +269,7 @@ docker/run.sh eval   # 보고서 지표 케이스 70건과 팀 규칙 케이스 
 | 7    | 0.5초 멈추면 뜨는 자동완성  | ✅   |
 | 8    | 입력창 아래의 원격 상태 표시 | ✅  |
 | 9    | 보고서의 검증 지표 측정     | ✅   |
+| 10   | 팀 규칙, 배포, 감사 기록 (v0.3.0) | ✅ |
 
 ## 개발
 
