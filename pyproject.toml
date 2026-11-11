@@ -3,10 +3,27 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "cligate"
-version = "0.3.1"
+name = "cligate-shell"                # PyPI 의 cligate 는 다른 프로젝트가 쓴다. 프로그램과 명령 이름은 cligate
+version = "0.3.2"
 description = "상태 인식 셸 프론트엔드 — 되돌릴 수 없는 명령을 실행 전에 막는다"
+readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "brain305" }]
+keywords = ["shell", "cli", "git", "safety", "terminal", "rm", "force-push"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Natural Language :: Korean",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: System :: Shells",
+    "Topic :: Software Development :: Version Control :: Git",
+]
 requires-python = ">=3.9"         # 서버 도달 범위: RHEL 9, Ubuntu 22.04+
 dependencies = [
     "prompt_toolkit>=3.0.43",     # 입력 줄, 완성 메뉴, 터미널 제어
@@ -17,7 +34,15 @@ dependencies = [
 dev = ["pytest>=8", "pytest-asyncio", "ruff", "shiv"]
 
 [project.scripts]
-cligate = "cligate.cli:main"              # TODO: 이름 확정 시 변경 (두 곳 중 나머지)
+cligate = "cligate.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/brain305/cligate"
+Source = "https://github.com/brain305/cligate"
+Changelog = "https://github.com/brain305/cligate#버전별-변경-사항"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/cligate", "tests", "README.md", "LICENSE", "pyproject.toml"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cligate"]            # 패키지명과 배포명이 달라도 되게 명시
