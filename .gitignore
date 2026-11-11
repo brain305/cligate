@@ -1,3 +1,6 @@
 __pycache__/
 .pytest_cache/
 .DS_Store
+
+# 배포 파일 (python -m build)
+dist/
