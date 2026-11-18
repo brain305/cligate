@@ -89,19 +89,20 @@
 
 | # | 입력 | 보여줄 점 |
 |---|---|---|
-| 48 | `cligate policy add --command "terraform destroy" --level 3 --message "운영 인프라를 지웁니다"` | 한 줄로 규칙 추가. 예시 판정 L3 |
-| 49 | `terraform destroy` `[취소]` | 기본 판정에는 없던 명령이 `[L3] 개인 규칙`으로 막힘. 엔터로 취소 |
-| 50 | `cligate policy explain "terraform destroy"` | 기본 판정 L0, 규칙 L3, 최종 L3 |
-| 51 | `cligate policy remove terraform-destroy-1` → `y` | 확인을 받고 지움 |
+| 48 | `cligate policy add --command chmod --args 777 --level 3 --message "모든 사용자에게 쓰기 권한을 엽니다"` | 한 줄로 규칙 추가. 예시 판정 `chmod 777 → L3` |
+| 49 | `chmod -R 777 .` `[취소]` | 기본 판정에는 없던 명령이 `[L3] 개인 규칙 chmod-1`로 막힘. 엔터로 취소 |
+| 50 | `chmod -R 755 src` | 규칙은 `777`에만 걸리므로 평범한 권한 변경은 경고 없이 실행 |
+| 51 | `cligate policy explain "chmod -R 777 ."` | 기본 판정 L0, 규칙 chmod-1 L3, 최종 L3 |
+| 52 | `cligate policy remove chmod-1` → `y` | 확인을 받고 지움 |
 
 사내 정책 저장소에서 팀 규칙을 받아 적용하고, 감사 기록을 본다.
 
 | # | 입력 | 보여줄 점 |
 |---|---|---|
-| 52 | `sudo cligate policy sync` | 정책 저장소에서 `ops.toml v1`을 받아 추가 |
-| 53 | `cligate policy show` | 팀 규칙 적용 중. `no-dropdb`는 적용, `watch-dd`는 관찰 모드 |
-| 54 | `dropdb payments` `[취소]` | `[L3] 팀 규칙 no-dropdb`와 담당 DBA팀 표시. 입력 단어는 `dropdb`. 엔터로 취소 |
-| 55 | `dd if=/dev/zero of=/dev/null count=1` | 관찰 모드라 경고 없이 실행 |
-| 56 | `cligate policy hits` | 관찰 모드 규칙 `watch-dd`가 1번 걸림 |
-| 57 | `rm notes.txt` `[취소]` | 확인 화면에서 취소. 감사 기록에 남음 |
-| 58 | `sudo cligate audit report --since 1d` | 등급별 취소와 멈춘 비율, 팀 규칙별 통계, 정책 변경 기록 |
+| 53 | `sudo cligate policy sync` | 정책 저장소에서 `ops.toml v1`을 받아 추가 |
+| 54 | `cligate policy show` | 팀 규칙 적용 중. `no-dropdb`는 적용, `watch-dd`는 관찰 모드 |
+| 55 | `dropdb payments` `[취소]` | `[L3] 팀 규칙 no-dropdb`와 담당 DBA팀 표시. 입력 단어는 `dropdb`. 엔터로 취소 |
+| 56 | `dd if=/dev/zero of=/dev/null count=1` | 관찰 모드라 경고 없이 실행 |
+| 57 | `cligate policy hits` | 관찰 모드 규칙 `watch-dd`가 1번 걸림 |
+| 58 | `rm notes.txt` `[취소]` | 확인 화면에서 취소. 감사 기록에 남음 |
+| 59 | `sudo cligate audit report --since 1d` | 등급별 취소와 멈춘 비율, 팀 규칙별 통계, 정책 변경 기록 |
