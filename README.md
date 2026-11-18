@@ -4,6 +4,9 @@
 ### demo
 https://claude.ai/artifact/AcsVWs6MzH6XGwon5VX43c
 
+### 시연 영상
+https://youtu.be/Dye2zWD_K7o?si=wua5h4ttoaBzuhXz
+
 ### 보고서
 https://claude.ai/artifact/SC1tbrYQvadwi8UzTjNLY7
 
